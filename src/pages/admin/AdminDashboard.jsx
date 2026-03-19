@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Package, Clock, CheckCircle, Truck, Star, XCircle,
          RefreshCw, ChevronDown, Search, User, Phone, MapPin, X,
-         MessageCircle, MapPinned, Receipt, Info, Plus, Trash2 } from 'lucide-react';
+         MessageCircle, MapPinned, Receipt, Info, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -67,6 +67,9 @@ export default function AdminDashboard() {
   const [salesRepOverride, setSalesRepOverride] = useState('');
   const [riderOverride,    setRiderOverride]    = useState('');
   const [savingFinancials, setSavingFinancials] = useState(false);
+
+  // Delete
+  const [deleteTarget,   setDeleteTarget]   = useState(null); // order to delete
   const [newLabel,     setNewLabel]     = useState('');
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
@@ -294,6 +297,25 @@ export default function AdminDashboard() {
     setOrders(prev => prev.map(o => o.id === selected.id ? { ...o, ...fields } : o));
     setSelected(prev => ({ ...prev, ...fields }));
     setSavingFinancials(false);
+  };
+
+  // ── Delete order ──────────────────────────────────────────
+  const handleDeleteOrder = async (password) => {
+    const email = adminUser?.email;
+    if (!email) return 'Admin email not found.';
+
+    // Re-authenticate
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (authErr) return 'Incorrect password. Deletion cancelled.';
+
+    // Delete
+    const { error: delErr } = await supabase.from('orders').delete().eq('id', deleteTarget.id);
+    if (delErr) return delErr.message;
+
+    setOrders(prev => prev.filter(o => o.id !== deleteTarget.id));
+    if (selected?.id === deleteTarget.id) setSelected(null);
+    setDeleteTarget(null);
+    return null; // success
   };
 
   // ── Stats (current month only) ─────────────────────────────
@@ -545,10 +567,17 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
-                          <button onClick={() => setSelected(order)}
-                            style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                            View
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => setSelected(order)}
+                              style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              View
+                            </button>
+                            <button onClick={() => setDeleteTarget(order)}
+                              style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', background: 'rgba(231,76,60,0.07)', border: '1px solid rgba(231,76,60,0.2)', borderRadius: '6px', cursor: 'pointer' }}
+                              title="Delete order">
+                              <Trash2 size={13} color="#E74C3C" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -851,6 +880,15 @@ export default function AdminDashboard() {
         </>
       )}
 
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          order={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteOrder}
+        />
+      )}
+
       <style>{`
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -892,5 +930,76 @@ function EmptyState({ icon, text }) {
       <span style={{ fontSize: '2.5rem' }}>{icon}</span>
       <p>{text}</p>
     </div>
+  );
+}
+
+// ── Delete confirmation modal ──────────────────────────────────
+function DeleteConfirmModal({ order, onClose, onConfirm }) {
+  const [password,  setPassword]  = useState('');
+  const [error,     setError]     = useState('');
+  const [deleting,  setDeleting]  = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password.trim()) { setError('Password is required.'); return; }
+    setDeleting(true);
+    setError('');
+    const err = await onConfirm(password);
+    if (err) { setError(err); setDeleting(false); }
+    // on success onConfirm sets deleteTarget to null, unmounting this modal
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,7,24,0.6)', backdropFilter: 'blur(4px)', zIndex: 400 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '440px', background: 'white', borderRadius: '16px', boxShadow: '0 20px 60px rgba(17,7,24,0.25)', zIndex: 401, overflow: 'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(231,76,60,0.12)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(231,76,60,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertTriangle size={18} color="#E74C3C" />
+          </div>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--navy)' }}>Delete Order</p>
+            <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{order.reference_code} · {order.customer_name}</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--gray)' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '0.86rem', color: 'var(--gray)', lineHeight: 1.6 }}>
+            This will <strong style={{ color: '#E74C3C' }}>permanently delete</strong> this order and cannot be undone.
+            Enter your admin password to confirm.
+          </p>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.05em', marginBottom: '6px' }}>ADMIN PASSWORD</label>
+            <input
+              type="password"
+              autoFocus
+              value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${error ? '#E74C3C' : 'rgba(166,113,228,0.2)'}`, borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'Inter,sans-serif', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box' }}
+            />
+            {error && <p style={{ fontSize: '0.78rem', color: '#E74C3C', marginTop: '5px' }}>{error}</p>}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" onClick={onClose} disabled={deleting}
+              style={{ flex: 1, padding: '11px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '9px', background: 'none', color: 'var(--gray)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={deleting || !password.trim()}
+              style={{ flex: 1.5, padding: '11px', border: 'none', borderRadius: '9px', background: deleting || !password.trim() ? 'rgba(231,76,60,0.15)' : '#E74C3C', color: deleting || !password.trim() ? 'rgba(231,76,60,0.4)' : 'white', fontWeight: 700, fontSize: '0.88rem', cursor: deleting || !password.trim() ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {deleting ? 'Verifying…' : 'Delete Order'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </>
   );
 }

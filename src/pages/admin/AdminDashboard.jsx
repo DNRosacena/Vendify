@@ -49,6 +49,111 @@ function LiveRiderMarker({ position }) {
   return <Marker position={position} icon={riderIcon}><Popup>Rider</Popup></Marker>;
 }
 
+// All-riders map component
+function AllRidersMap() {
+  const [riders, setRiders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const channelRef = useRef(null);
+
+  const loadRiders = async () => {
+    const { data } = await supabase
+      .from('rider_locations')
+      .select('*, rider:rider_id(full_name)')
+      .order('updated_at', { ascending: false });
+    setRiders(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadRiders();
+    channelRef.current = supabase
+      .channel('all_rider_locations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_locations' }, loadRiders)
+      .subscribe();
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+    };
+  }, []);
+
+  function lastSeen(updatedAt) {
+    if (!updatedAt) return '';
+    const diff = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
+  }
+
+  if (loading) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'500px', color:'var(--gray)', fontSize:'0.9rem' }}>Loading rider locations…</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Badge */}
+      <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+        <div style={{ background:'var(--navy)', color:'white', borderRadius:'20px', padding:'4px 14px', fontSize:'0.78rem', fontWeight:700, display:'flex', alignItems:'center', gap:'6px' }}>
+          🏍️ {riders.length} active rider{riders.length !== 1 ? 's' : ''}
+        </div>
+        <button onClick={loadRiders} style={{ display:'flex', alignItems:'center', gap:'5px', padding:'5px 12px', border:'1px solid rgba(166,113,228,0.2)', borderRadius:'8px', fontSize:'0.78rem', fontWeight:600, color:'var(--navy)', background:'white', cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+          <RefreshCw size={12} /> Refresh
+        </button>
+      </div>
+
+      {/* Map */}
+      <div style={{ borderRadius:'12px', overflow:'hidden', border:'1px solid rgba(166,113,228,0.12)', height:'500px' }}>
+        {riders.length === 0 ? (
+          <div style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'10px', background:'#f9f9ff' }}>
+            <span style={{ fontSize:'2.5rem' }}>📍</span>
+            <p style={{ fontWeight:700, color:'var(--navy)' }}>No active riders</p>
+            <p style={{ fontSize:'0.82rem', color:'var(--gray)' }}>Riders appear here when location sharing is ON</p>
+          </div>
+        ) : (
+          <MapContainer
+            center={[riders[0].latitude, riders[0].longitude]}
+            zoom={12}
+            style={{ height:'100%', width:'100%' }}
+            scrollWheelZoom
+          >
+            <TileLayer
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+              attribution='&copy; OpenStreetMap &copy; CARTO'
+              subdomains="abcd"
+            />
+            {riders.map(r => (
+              <Marker key={r.rider_id} position={[r.latitude, r.longitude]} icon={riderIcon}>
+                <Popup>
+                  <div style={{ fontFamily:'Inter,sans-serif', minWidth:'140px' }}>
+                    <p style={{ fontWeight:700, color:'var(--navy)', marginBottom:'4px' }}>🏍️ {r.rider?.full_name || 'Rider'}</p>
+                    <p style={{ fontSize:'0.75rem', color:'var(--gray)', marginBottom:'2px' }}>{r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}</p>
+                    {r.updated_at && <p style={{ fontSize:'0.72rem', color:'var(--gray)' }}>Updated {lastSeen(r.updated_at)}</p>}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        )}
+      </div>
+
+      {/* Rider list */}
+      {riders.length > 0 && (
+        <div style={{ background:'white', borderRadius:'12px', border:'1px solid rgba(166,113,228,0.12)', overflow:'hidden' }}>
+          <div style={{ padding:'14px 20px', borderBottom:'1px solid rgba(166,113,228,0.08)' }}>
+            <p style={{ fontSize:'0.70rem', fontWeight:700, color:'var(--gray)', letterSpacing:'0.08em', textTransform:'uppercase' }}>Active Riders</p>
+          </div>
+          {riders.map(r => (
+            <div key={r.rider_id} style={{ display:'flex', alignItems:'center', gap:'14px', padding:'14px 20px', borderBottom:'1px solid rgba(166,113,228,0.06)' }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', background:'linear-gradient(135deg,#a671e4,#fe78e3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px', flexShrink:0 }}>🏍️</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontWeight:700, color:'var(--navy)', fontSize:'0.88rem' }}>{r.rider?.full_name || 'Rider'}</p>
+                <p style={{ fontSize:'0.75rem', color:'var(--gray)' }}>{r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}</p>
+              </div>
+              {r.updated_at && <span style={{ fontSize:'0.72rem', color:'var(--gray)', flexShrink:0 }}>Updated {lastSeen(r.updated_at)}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const navigate   = useNavigate();
   const [orders,   setOrders]   = useState([]);
@@ -377,15 +482,15 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : 'Products'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : 'Manage your product catalog'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'map', label: '🗺 Rider Map' }].map(({ id, label }) => (
               <button key={id}
                 onClick={() => { setView(id); if (id === 'history') loadReports(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
@@ -399,8 +504,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats — current month only (hidden on Products view) */}
-        {view !== 'products' && <>
+        {/* Stats — current month only (hidden on Products/Map view) */}
+        {view !== 'products' && view !== 'map' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />
@@ -500,6 +605,9 @@ export default function AdminDashboard() {
 
         {/* ── Products view ── */}
         {view === 'products' && <AdminProducts />}
+
+        {/* ── Rider Map view ── */}
+        {view === 'map' && <AllRidersMap />}
 
         {/* Table — orders view only */}
         {view === 'orders' && (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { User, MapPin, Phone, Package, FileText, ChevronDown, Loader } from 'lucide-react';
+import { User, Phone, Package, FileText, ChevronDown, Loader, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateReferenceCode } from '../lib/utils';
 import LandmarkSearch from './LandmarkSearch';
@@ -11,14 +11,16 @@ export default function OrderForm() {
   const preSelect = location.state?.productId || '';
   const preName   = location.state?.productName || '';
 
-  const [products, setProducts] = useState([]);
-  const [form, setForm]         = useState({
+  const [products,  setProducts]  = useState([]);
+  const [salesReps, setSalesReps] = useState([]);
+  const [form, setForm]           = useState({
     customer_name:   '',
     address:         '',
     landmark:        '',
     landmark_lat:    null,
     landmark_lng:    null,
     contact_number:  '',
+    sales_rep_id:    '',
     product_id:      preSelect,
     product_name:    preName,
     note:            '',
@@ -29,6 +31,9 @@ export default function OrderForm() {
   useEffect(() => {
     supabase.from('products').select('*').eq('is_active', true)
       .then(({ data }) => setProducts(data || []));
+    supabase.from('users').select('id, full_name').eq('is_active', true)
+      .order('full_name')
+      .then(({ data }) => setSalesReps(data || []));
   }, []);
 
   const validate = () => {
@@ -36,6 +41,7 @@ export default function OrderForm() {
     if (!form.customer_name.trim())  e.customer_name  = 'Full name is required / Pangalan ay kinakailangan';
     if (!form.address.trim())        e.address        = 'Address is required / Address ay kinakailangan';
     if (!form.contact_number.trim()) e.contact_number = 'Contact number is required / Numero ay kinakailangan';
+    if (!form.sales_rep_id)          e.sales_rep_id   = 'Please select your sales rep / Pumili ng inyong sales rep';
     if (!form.product_id)            e.product_id     = 'Please select a product / Pumili ng produkto';
     if (form.contact_number && !/^(09|\+639)\d{9}$/.test(form.contact_number.replace(/\s/g, '')))
       e.contact_number = 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX)';
@@ -51,17 +57,18 @@ export default function OrderForm() {
     const ref = generateReferenceCode();
 
     const { error } = await supabase.from('orders').insert({
-      reference_code:   ref,
-      customer_name:    form.customer_name.trim(),
-      address:          form.address.trim(),
-      landmark:         form.landmark.trim(),
-      landmark_lat:     form.landmark_lat,
-      landmark_lng:     form.landmark_lng,
-      contact_number:   form.contact_number.trim(),
-      product_id:       form.product_id,
-      product_name:     selectedProduct?.name || form.product_name,
-      note:             form.note.trim(),
-      status:           'pending',
+      reference_code:    ref,
+      customer_name:     form.customer_name.trim(),
+      address:           form.address.trim(),
+      landmark:          form.landmark.trim(),
+      landmark_lat:      form.landmark_lat,
+      landmark_lng:      form.landmark_lng,
+      contact_number:    form.contact_number.trim(),
+      assigned_sales_id: form.sales_rep_id,
+      product_id:        form.product_id,
+      product_name:      selectedProduct?.name || form.product_name,
+      note:              form.note.trim(),
+      status:            'pending',
     });
 
     if (error) {
@@ -140,6 +147,27 @@ export default function OrderForm() {
             />
           </div>
           {errors.contact_number && <p style={{ color: 'var(--red)', fontSize: '0.75rem', marginTop: '4px' }}>{errors.contact_number}</p>}
+        </div>
+
+        {/* Sales Rep */}
+        <div>
+          <label className="label required">Sales Representative / Sales Rep</label>
+          <div style={{ position: 'relative' }}>
+            <Users size={16} color="var(--gray)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
+            <ChevronDown size={16} color="var(--gray)" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <select
+              className="input-field"
+              style={{ paddingLeft: '40px', paddingRight: '40px', appearance: 'none', borderColor: errors.sales_rep_id ? 'var(--red)' : '' }}
+              value={form.sales_rep_id}
+              onChange={e => field('sales_rep_id', e.target.value)}
+            >
+              <option value="">-- Select your sales rep / Pumili ng inyong sales rep --</option>
+              {salesReps.map(r => (
+                <option key={r.id} value={r.id}>{r.full_name}</option>
+              ))}
+            </select>
+          </div>
+          {errors.sales_rep_id && <p style={{ color: 'var(--red)', fontSize: '0.75rem', marginTop: '4px' }}>{errors.sales_rep_id}</p>}
         </div>
 
         {/* Product */}

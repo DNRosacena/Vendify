@@ -1,7 +1,33 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Package, CheckCircle, Clock, Truck, Star, XCircle, ChevronRight } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../lib/utils';
+import OrderChat from '../components/OrderChat';
+
+// Fix leaflet default marker icons with Vite
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl:       'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
+
+const riderIcon = L.divIcon({
+  className: '',
+  html: '<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#a671e4,#fe78e3);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 2px 10px rgba(166,113,228,0.5);">🏍️</div>',
+  iconSize:   [38, 38],
+  iconAnchor: [19, 19],
+});
+
+const destIcon = L.divIcon({
+  className: '',
+  html: '<div style="font-size:28px;line-height:1;">📍</div>',
+  iconSize:   [28, 36],
+  iconAnchor: [14, 36],
+});
 
 const STATUS_STEPS = [
   { key: 'pending',          label: 'Order Received',    labelFil: 'Natanggap ang Order',      icon: Package,      desc: 'Your order has been submitted and is awaiting confirmation.' },
@@ -15,19 +41,42 @@ function getStepIndex(status) {
   return STATUS_STEPS.findIndex(s => s.key === status);
 }
 
+// Recenter map when position changes
+function RiderMarker({ position }) {
+  const map = useMap();
+  useEffect(() => { map.setView(position, map.getZoom()); }, [position]);
+  return <Marker position={position} icon={riderIcon}><Popup>Rider is here</Popup></Marker>;
+}
+
 export default function Track() {
-  const [refCode,  setRefCode]  = useState('');
-  const [order,    setOrder]    = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [searched, setSearched] = useState(false);
+  const [refCode,      setRefCode]      = useState('');
+  const [order,        setOrder]        = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [searched,     setSearched]     = useState(false);
+  const [riderLoc,     setRiderLoc]     = useState(null);
+  const [chatOpen,     setChatOpen]     = useState(false);
+  const channelRef = useRef(null);
+
+  // Cleanup realtime channel on unmount / order change
+  useEffect(() => {
+    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+  }, []);
 
   const handleSearch = async () => {
     if (!refCode.trim()) return;
     setLoading(true);
     setError('');
     setOrder(null);
+    setRiderLoc(null);
     setSearched(true);
+    setChatOpen(false);
+
+    // Remove old location channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
 
     const { data, error: err } = await supabase
       .from('orders')
@@ -39,14 +88,42 @@ export default function Track() {
       setError('No order found with that reference code. Please check and try again.');
     } else {
       setOrder(data);
+      if (data.status === 'out_for_delivery' && data.assigned_rider_id) {
+        loadRiderLocation(data.assigned_rider_id);
+      }
     }
-
     setLoading(false);
+  };
+
+  const loadRiderLocation = async (riderId) => {
+    const { data } = await supabase
+      .from('rider_locations')
+      .select('latitude, longitude')
+      .eq('rider_id', riderId)
+      .maybeSingle();
+    if (data) setRiderLoc([data.latitude, data.longitude]);
+
+    // Subscribe to live updates
+    channelRef.current = supabase
+      .channel(`rider_track_${riderId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'rider_locations',
+        filter: `rider_id=eq.${riderId}`,
+      }, async () => {
+        const { data: updated } = await supabase
+          .from('rider_locations')
+          .select('latitude, longitude')
+          .eq('rider_id', riderId)
+          .maybeSingle();
+        if (updated) setRiderLoc([updated.latitude, updated.longitude]);
+      })
+      .subscribe();
   };
 
   const currentStep = order ? getStepIndex(order.status) : -1;
   const isCancelled = order?.status === 'cancelled';
 
+  // ── Render ────────────────────────────────────────────────
   return (
     <div style={{ paddingTop: '68px', minHeight: '100vh', background: 'var(--light)' }}>
 
@@ -72,8 +149,8 @@ export default function Track() {
                 value={refCode}
                 onChange={e => setRefCode(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. VT-260310-ABCD"
-                style={{ width: '100%', padding: '13px 16px 13px 42px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '10px', color: 'white', fontSize: '0.92rem', outline: 'none', fontFamily: 'Inter, sans-serif', letterSpacing: '0.04em', transition: 'border-color 0.2s' }}
+                placeholder="e.g. VND260310-1234"
+                style={{ width: '100%', padding: '13px 16px 13px 42px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '10px', color: 'white', fontSize: '0.92rem', outline: 'none', fontFamily: 'Inter, sans-serif', letterSpacing: '0.04em' }}
                 onFocus={e => e.target.style.borderColor = 'rgba(166,113,228,0.6)'}
                 onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.25)'}
               />
@@ -81,9 +158,9 @@ export default function Track() {
             <button
               onClick={handleSearch}
               disabled={loading || !refCode.trim()}
-              style={{ padding: '13px 24px', background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontWeight: 700, fontSize: '0.9rem', border: 'none', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading || !refCode.trim() ? 0.5 : 1, transition: 'all 0.2s', whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(166,113,228,0.3)' }}
+              style={{ padding: '13px 24px', background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontWeight: 700, fontSize: '0.9rem', border: 'none', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading || !refCode.trim() ? 0.5 : 1, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(166,113,228,0.3)' }}
             >
-              {loading ? '...' : 'Track'}
+              {loading ? '…' : 'Track'}
             </button>
           </div>
         </div>
@@ -125,7 +202,7 @@ export default function Track() {
                   { label: 'Product',     value: order.product_name },
                   { label: 'Customer',    value: order.customer_name },
                   { label: 'Date Placed', value: formatDate(order.created_at) },
-                  { label: 'Sales Rep',   value: order.assigned_sales?.full_name || 'Pending assignment' },
+                  { label: 'Sales Rep',   value: order.assigned_sales?.full_name || 'Assigned' },
                 ].map(({ label, value }) => (
                   <div key={label} style={{ background: 'rgba(166,113,228,0.04)', borderRadius: '8px', padding: '10px 14px' }}>
                     <p style={{ fontSize: '0.68rem', color: 'var(--gray)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '3px' }}>{label}</p>
@@ -137,36 +214,23 @@ export default function Track() {
 
             {/* Status timeline */}
             {!isCancelled ? (
-              <div style={{ background: 'white', borderRadius: '14px', padding: '28px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+              <div style={{ background: 'white', borderRadius: '14px', padding: '28px', marginBottom: '16px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
                 <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', marginBottom: '24px' }}>Order Progress</h3>
                 <div style={{ position: 'relative' }}>
-                  {/* Vertical line */}
                   <div style={{ position: 'absolute', left: '19px', top: '20px', bottom: '20px', width: '2px', background: 'rgba(166,113,228,0.12)', zIndex: 0 }} />
-                  {/* Progress line */}
                   <div style={{ position: 'absolute', left: '19px', top: '20px', width: '2px', height: `${Math.max(0, currentStep) * (100 / (STATUS_STEPS.length - 1))}%`, background: 'linear-gradient(to bottom, var(--blue), var(--red))', zIndex: 1, transition: 'height 0.5s ease' }} />
-
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
                     {STATUS_STEPS.map((step, i) => {
-                      const done    = i < currentStep;
-                      const active  = i === currentStep;
-                      const pending = i > currentStep;
-                      const Icon    = step.icon;
+                      const done   = i < currentStep;
+                      const active = i === currentStep;
+                      const Icon   = step.icon;
                       return (
                         <div key={step.key} style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', paddingBottom: i < STATUS_STEPS.length - 1 ? '24px' : '0', position: 'relative', zIndex: 2 }}>
-                          {/* Circle */}
-                          <div style={{
-                            width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: done ? 'linear-gradient(135deg, var(--blue), var(--red))' : active ? 'white' : 'white',
-                            border: done ? 'none' : active ? '2.5px solid var(--blue)' : '2px solid rgba(166,113,228,0.15)',
-                            boxShadow: active ? '0 0 0 4px rgba(166,113,228,0.12)' : 'none',
-                            transition: 'all 0.3s',
-                          }}>
+                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: done ? 'linear-gradient(135deg, var(--blue), var(--red))' : 'white', border: done ? 'none' : active ? '2.5px solid var(--blue)' : '2px solid rgba(166,113,228,0.15)', boxShadow: active ? '0 0 0 4px rgba(166,113,228,0.12)' : 'none' }}>
                             <Icon size={16} color={done ? 'white' : active ? 'var(--blue)' : 'rgba(166,113,228,0.3)'} />
                           </div>
-                          {/* Text */}
                           <div style={{ paddingTop: '8px' }}>
-                            <p style={{ fontWeight: active ? 700 : done ? 600 : 500, fontSize: '0.95rem', color: active ? 'var(--navy)' : done ? 'var(--navy)' : 'var(--gray)', marginBottom: '2px' }}>
+                            <p style={{ fontWeight: active ? 700 : done ? 600 : 500, fontSize: '0.95rem', color: active || done ? 'var(--navy)' : 'var(--gray)', marginBottom: '2px' }}>
                               {step.label}
                               <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: 'var(--blue)', fontWeight: 500 }}>{step.labelFil}</span>
                             </p>
@@ -181,7 +245,7 @@ export default function Track() {
                 </div>
               </div>
             ) : (
-              <div style={{ background: 'white', borderRadius: '14px', padding: '28px', textAlign: 'center', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(149,165,166,0.15)' }}>
+              <div style={{ background: 'white', borderRadius: '14px', padding: '28px', textAlign: 'center', marginBottom: '16px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(149,165,166,0.15)' }}>
                 <XCircle size={36} color="var(--gray)" style={{ margin: '0 auto 12px' }} />
                 <h3 style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: '8px' }}>Order Cancelled</h3>
                 <p style={{ color: 'var(--gray)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '20px' }}>
@@ -192,6 +256,75 @@ export default function Track() {
                 </button>
               </div>
             )}
+
+            {/* ── Rider live map (out_for_delivery only) ── */}
+            {order.status === 'out_for_delivery' && (
+              <div style={{ background: 'white', borderRadius: '14px', marginBottom: '16px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+                <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid rgba(166,113,228,0.08)' }}>
+                  <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>
+                    🏍️ Rider is on the way / Papunta na ang rider
+                  </h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '4px' }}>
+                    Live location updates every few seconds.
+                  </p>
+                </div>
+                {riderLoc ? (
+                  <MapContainer
+                    center={riderLoc}
+                    zoom={15}
+                    style={{ height: '280px', width: '100%' }}
+                    scrollWheelZoom={false}
+                  >
+                    <TileLayer
+                      url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                      attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                    />
+                    <RiderMarker position={riderLoc} />
+                    {order.landmark_lat && order.landmark_lng && (
+                      <Marker
+                        position={[order.landmark_lat, order.landmark_lng]}
+                        icon={destIcon}
+                      >
+                        <Popup>Delivery destination</Popup>
+                      </Marker>
+                    )}
+                  </MapContainer>
+                ) : (
+                  <div style={{ height: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
+                    <p style={{ fontSize: '1.5rem' }}>📡</p>
+                    <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Waiting for rider to share location…</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Chat with us ── */}
+            <div style={{ background: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+              <button
+                onClick={() => setChatOpen(v => !v)}
+                style={{ width: '100%', padding: '18px 24px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'Inter, sans-serif' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.1rem' }}>💬</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <p style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--navy)', margin: 0 }}>Chat with our team</p>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--gray)', margin: 0 }}>Makipag-usap sa aming team</p>
+                  </div>
+                </div>
+                <ChevronRight size={18} color="var(--gray)" style={{ transform: chatOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+
+              {chatOpen && (
+                <div style={{ height: '420px', borderTop: '1px solid rgba(166,113,228,0.08)' }}>
+                  <OrderChat
+                    orderId={order.id}
+                    senderName={order.customer_name}
+                    senderType="customer"
+                    senderId={null}
+                  />
+                </div>
+              )}
+            </div>
 
             {/* Track another */}
             {order.status === 'delivered' && (
@@ -218,7 +351,7 @@ export default function Track() {
 
       <style>{`
         @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes pulse  { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
     </div>
   );

@@ -58,7 +58,7 @@ function AllRidersMap() {
   const loadRiders = async () => {
     const { data } = await supabase
       .from('rider_locations')
-      .select('*, rider:rider_id(full_name)')
+      .select('*, rider:rider_id(full_name, is_available)')
       .order('updated_at', { ascending: false });
     setRiders(data || []);
     setLoading(false);
@@ -145,6 +145,9 @@ function AllRidersMap() {
                 <p style={{ fontWeight:700, color:'var(--navy)', fontSize:'0.88rem' }}>{r.rider?.full_name || 'Rider'}</p>
                 <p style={{ fontSize:'0.75rem', color:'var(--gray)' }}>{r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}</p>
               </div>
+              {r.rider?.is_available && (
+                <span style={{ fontSize:'0.68rem', fontWeight:700, color:'#27ae60', background:'rgba(39,174,96,0.1)', padding:'2px 8px', borderRadius:'20px', flexShrink:0 }}>Available</span>
+              )}
               {r.updated_at && <span style={{ fontSize:'0.72rem', color:'var(--gray)', flexShrink:0 }}>Updated {lastSeen(r.updated_at)}</span>}
             </div>
           ))}
@@ -172,6 +175,10 @@ export default function AdminDashboard() {
   const [salesRepOverride, setSalesRepOverride] = useState('');
   const [riderOverride,    setRiderOverride]    = useState('');
   const [savingFinancials, setSavingFinancials] = useState(false);
+
+  // Available riders (for manual assignment)
+  const [availableRiders,    setAvailableRiders]    = useState([]);
+  const [assigningRider,     setAssigningRider]     = useState(false);
 
   // Delete
   const [deleteTarget,   setDeleteTarget]   = useState(null); // order to delete
@@ -232,6 +239,30 @@ export default function AdminDashboard() {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     if (selected?.id === orderId) setSelected(prev => ({ ...prev, status: newStatus }));
     setUpdating(false);
+  };
+
+  // ── Available riders for manual assignment ────────────────
+  const loadAvailableRiders = async () => {
+    const { data } = await supabase.from('users')
+      .select('id, full_name, phone')
+      .eq('role', 'rider')
+      .eq('is_available', true);
+    setAvailableRiders(data || []);
+  };
+
+  const assignRider = async (riderId, riderName) => {
+    if (!selected) return;
+    setAssigningRider(true);
+    await supabase.from('orders').update({
+      assigned_rider_id: riderId,
+      status: 'out_for_delivery',
+      updated_at: new Date().toISOString(),
+    }).eq('id', selected.id);
+    setOrders(prev => prev.map(o => o.id === selected.id
+      ? { ...o, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }
+      : o));
+    setSelected(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }));
+    setAssigningRider(false);
   };
 
   // ── Rider location ────────────────────────────────────────
@@ -719,7 +750,7 @@ export default function AdminDashboard() {
             {/* Tab bar */}
             <div style={{ display: 'flex', borderBottom: '1px solid rgba(166,113,228,0.1)', flexShrink: 0 }}>
               {DRAWER_TABS.map(({ id, label, Icon }) => (
-                <button key={id} onClick={() => setDrawerTab(id)}
+                <button key={id} onClick={() => { setDrawerTab(id); if (id === 'rider') loadAvailableRiders(); }}
                   style={{ flex: 1, padding: '12px 4px', border: 'none', background: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', borderBottom: drawerTab === id ? '2px solid var(--blue)' : '2px solid transparent', fontFamily: 'Inter, sans-serif', transition: 'all 0.15s' }}>
                   <Icon size={16} color={drawerTab === id ? 'var(--blue)' : 'var(--gray)'} />
                   <span style={{ fontSize: '0.68rem', fontWeight: drawerTab === id ? 700 : 500, color: drawerTab === id ? 'var(--blue)' : 'var(--gray)', letterSpacing: '0.04em' }}>{label}</span>
@@ -792,9 +823,37 @@ export default function AdminDashboard() {
 
               {/* ── Rider ── */}
               {drawerTab === 'rider' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'auto' }}>
                   {!selected.assigned_rider_id ? (
-                    <EmptyState icon="🏍️" text="No rider assigned yet" />
+                    // No rider yet — show available riders for manual assignment
+                    <div style={{ padding: '16px' }}>
+                      <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>
+                        Assign a Rider
+                      </p>
+                      {availableRiders.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                          <p style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🏍️</p>
+                          <p style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: '4px' }}>No available riders</p>
+                          <p style={{ fontSize: '0.80rem', color: 'var(--gray)' }}>Riders appear here when they toggle themselves Available in the app</p>
+                        </div>
+                      ) : availableRiders.map(r => (
+                        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(166,113,228,0.15)', marginBottom: '8px', background: 'rgba(166,113,228,0.03)' }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#a671e4,#fe78e3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>🏍️</div>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.88rem', marginBottom: '2px' }}>{r.full_name}</p>
+                            {r.phone && <p style={{ fontSize: '0.75rem', color: 'var(--gray)' }}>{r.phone}</p>}
+                          </div>
+                          <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#27ae60', background: 'rgba(39,174,96,0.1)', padding: '3px 8px', borderRadius: '20px', marginRight: '8px' }}>Available</span>
+                          <button
+                            onClick={() => assignRider(r.id, r.full_name)}
+                            disabled={assigningRider}
+                            style={{ padding: '7px 14px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: assigningRider ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: assigningRider ? 0.6 : 1 }}
+                          >
+                            {assigningRider ? '…' : 'Assign'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   ) : riderLoc ? (
                     <MapContainer center={riderLoc} zoom={15} style={{ flex: 1, minHeight: '300px' }} scrollWheelZoom={false}>
                       <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
@@ -809,7 +868,7 @@ export default function AdminDashboard() {
                     <EmptyState icon="📡" text="Rider hasn't shared location yet" />
                   )}
                   {selected.assigned_rider?.full_name && (
-                    <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(166,113,228,0.1)', fontSize: '0.85rem', color: 'var(--navy)', fontWeight: 600 }}>
+                    <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(166,113,228,0.1)', fontSize: '0.85rem', color: 'var(--navy)', fontWeight: 600, flexShrink: 0 }}>
                       🏍️ {selected.assigned_rider.full_name}
                     </div>
                   )}

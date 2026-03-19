@@ -406,7 +406,8 @@ export default function AdminDashboard() {
 
   // ── Delete order ──────────────────────────────────────────
   const handleDeleteOrder = async (password) => {
-    const email = adminUser?.email;
+    const { data: { user } } = await supabase.auth.getUser();
+    const email = user?.email;
     if (!email) return 'Admin email not found.';
 
     // Re-authenticate

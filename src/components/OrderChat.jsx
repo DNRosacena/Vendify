@@ -62,6 +62,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
       content:     text.trim(),
     });
     setText('');
+    await loadMessages();
     setSending(false);
   };
 
@@ -97,6 +98,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
         file_name:   file.name,
         file_type:   isImage ? 'image' : 'file',
       });
+      await loadMessages();
     }
     setUploading(false);
     e.target.value = '';

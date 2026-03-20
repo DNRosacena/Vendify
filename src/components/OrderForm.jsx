@@ -25,6 +25,7 @@ export default function OrderForm() {
     product_name:    preName,
     note:            '',
   });
+  const [hasSalesRep, setHasSalesRep] = useState(null); // null = not answered yet
   const [errors,     setErrors]     = useState({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -41,7 +42,7 @@ export default function OrderForm() {
     if (!form.customer_name.trim())  e.customer_name  = 'Full name is required / Pangalan ay kinakailangan';
     if (!form.address.trim())        e.address        = 'Address is required / Address ay kinakailangan';
     if (!form.contact_number.trim()) e.contact_number = 'Contact number is required / Numero ay kinakailangan';
-    if (!form.sales_rep_id)          e.sales_rep_id   = 'Please select your sales rep / Pumili ng inyong sales rep';
+    if (hasSalesRep && !form.sales_rep_id) e.sales_rep_id = 'Please select your sales rep / Pumili ng inyong sales rep';
     if (!form.product_id)            e.product_id     = 'Please select a product / Pumili ng produkto';
     if (form.contact_number && !/^(09|\+639)\d{9}$/.test(form.contact_number.replace(/\s/g, '')))
       e.contact_number = 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX)';
@@ -149,26 +150,48 @@ export default function OrderForm() {
           {errors.contact_number && <p style={{ color: 'var(--red)', fontSize: '0.75rem', marginTop: '4px' }}>{errors.contact_number}</p>}
         </div>
 
-        {/* Sales Rep */}
+        {/* Are you in contact with a sales rep? */}
         <div>
-          <label className="label required">Sales Representative / Sales Rep</label>
-          <div style={{ position: 'relative' }}>
-            <Users size={16} color="var(--gray)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
-            <ChevronDown size={16} color="var(--gray)" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <select
-              className="input-field"
-              style={{ paddingLeft: '40px', paddingRight: '40px', appearance: 'none', borderColor: errors.sales_rep_id ? 'var(--red)' : '' }}
-              value={form.sales_rep_id}
-              onChange={e => field('sales_rep_id', e.target.value)}
-            >
-              <option value="">-- Select your sales rep / Pumili ng inyong sales rep --</option>
-              {salesReps.map(r => (
-                <option key={r.id} value={r.id}>{r.full_name}</option>
-              ))}
-            </select>
+          <label className="label">Are you in contact with a Sales Rep? / Mayroon kang Sales Rep?</label>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+            {[{ val: true, label: 'Yes / Oo' }, { val: false, label: 'No / Hindi' }].map(({ val, label }) => (
+              <button key={String(val)} type="button"
+                onClick={() => { setHasSalesRep(val); if (!val) field('sales_rep_id', ''); }}
+                style={{
+                  flex: 1, padding: '10px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer',
+                  border: `1.5px solid ${hasSalesRep === val ? 'var(--blue)' : 'rgba(166,113,228,0.2)'}`,
+                  borderRadius: '8px',
+                  background: hasSalesRep === val ? 'var(--navy)' : 'transparent',
+                  color: hasSalesRep === val ? 'white' : 'var(--navy)',
+                  transition: 'all 0.15s',
+                }}
+              >{label}</button>
+            ))}
           </div>
-          {errors.sales_rep_id && <p style={{ color: 'var(--red)', fontSize: '0.75rem', marginTop: '4px' }}>{errors.sales_rep_id}</p>}
         </div>
+
+        {/* Sales Rep dropdown — only if yes */}
+        {hasSalesRep && (
+          <div>
+            <label className="label required">Sales Representative / Sales Rep</label>
+            <div style={{ position: 'relative' }}>
+              <Users size={16} color="var(--gray)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
+              <ChevronDown size={16} color="var(--gray)" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+              <select
+                className="input-field"
+                style={{ paddingLeft: '40px', paddingRight: '40px', appearance: 'none', borderColor: errors.sales_rep_id ? 'var(--red)' : '' }}
+                value={form.sales_rep_id}
+                onChange={e => field('sales_rep_id', e.target.value)}
+              >
+                <option value="">-- Select your sales rep / Pumili ng inyong sales rep --</option>
+                {salesReps.map(r => (
+                  <option key={r.id} value={r.id}>{r.full_name}</option>
+                ))}
+              </select>
+            </div>
+            {errors.sales_rep_id && <p style={{ color: 'var(--red)', fontSize: '0.75rem', marginTop: '4px' }}>{errors.sales_rep_id}</p>}
+          </div>
+        )}
 
         {/* Product */}
         <div>

@@ -197,10 +197,15 @@ export default function AdminDashboard() {
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
 
-  const riderChannelRef = useRef(null);
+  const riderChannelRef  = useRef(null);
+  const ordersChannelRef = useRef(null);
+
+  // Activity Log state
+  const [activityLog,    setActivityLog]   = useState([]);
+  const [loadingLog,     setLoadingLog]    = useState(false);
 
   // Sales History state
-  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products'
+  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity'
   const [reports,        setReports]       = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [genYear,        setGenYear]       = useState(new Date().getFullYear());
@@ -209,8 +214,22 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadAll();
+
+    // Realtime orders — silently refresh the list on any change
+    ordersChannelRef.current = supabase
+      .channel('admin_orders_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async () => {
+        const { data } = await supabase
+          .from('orders')
+          .select('*, product:product_id(name, image_url), assigned_sales:assigned_sales_id(full_name), assigned_rider:assigned_rider_id(full_name)')
+          .order('created_at', { ascending: false });
+        if (data) setOrders(data);
+      })
+      .subscribe();
+
     return () => {
-      if (notifChannelRef.current) supabase.removeChannel(notifChannelRef.current);
+      if (notifChannelRef.current)  supabase.removeChannel(notifChannelRef.current);
+      if (ordersChannelRef.current) supabase.removeChannel(ordersChannelRef.current);
     };
   }, []);
 
@@ -232,6 +251,28 @@ export default function AdminDashboard() {
   const markAllNotifsRead = async (userId) => {
     await supabase.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
+
+  const loadActivityLog = async () => {
+    setLoadingLog(true);
+    const { data } = await supabase
+      .from('activity_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    setActivityLog(data || []);
+    setLoadingLog(false);
+  };
+
+  const logAction = async (action, description, orderId = null, refCode = null) => {
+    await supabase.from('activity_log').insert({
+      actor_name:     adminUser?.full_name || 'Admin',
+      actor_role:     'admin',
+      action,
+      description,
+      order_id:       orderId,
+      reference_code: refCode,
+    });
   };
 
   // When selected order changes, reset drawer
@@ -299,6 +340,22 @@ export default function AdminDashboard() {
     await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     if (selected?.id === orderId) setSelected(prev => ({ ...prev, status: newStatus }));
+
+    // Notify assigned staff with the actual new status
+    const order = orders.find(o => o.id === orderId);
+    const label = statusLabel(newStatus).en;
+    const notifBody = `${order?.reference_code || 'Order'} status → ${label}`;
+    const inserts = [];
+    if (order?.assigned_sales_id)
+      inserts.push({ user_id: order.assigned_sales_id, title: 'Status Updated', body: notifBody, order_id: orderId });
+    if (order?.assigned_rider_id)
+      inserts.push({ user_id: order.assigned_rider_id, title: 'Status Updated', body: notifBody, order_id: orderId });
+    if (inserts.length) await supabase.from('notifications').insert(inserts);
+
+    await logAction('status_update',
+      `Status changed to "${label}" for ${order?.reference_code || orderId}`,
+      orderId, order?.reference_code);
+
     setUpdating(false);
   };
 
@@ -323,6 +380,9 @@ export default function AdminDashboard() {
       ? { ...o, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }
       : o));
     setSelected(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }));
+    await logAction('rider_assigned',
+      `Rider "${riderName}" assigned to ${selected.reference_code}`,
+      selected.id, selected.reference_code);
     setAssigningRider(false);
   };
 
@@ -493,6 +553,9 @@ export default function AdminDashboard() {
     await supabase.from('orders').update(fields).eq('id', selected.id);
     setOrders(prev => prev.map(o => o.id === selected.id ? { ...o, ...fields } : o));
     setSelected(prev => ({ ...prev, ...fields }));
+    await logAction('financials_saved',
+      `Commission overrides saved for ${selected.reference_code}`,
+      selected.id, selected.reference_code);
     setSavingFinancials(false);
   };
 
@@ -505,10 +568,16 @@ export default function AdminDashboard() {
     const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
     if (authErr) return 'Incorrect password. Deletion cancelled.';
 
+    // Delete related notifications first (avoids FK constraint error)
+    await supabase.from('notifications').delete().eq('order_id', deleteTarget.id);
+
     // Delete
     const { error: delErr } = await supabase.from('orders').delete().eq('id', deleteTarget.id);
     if (delErr) return delErr.message;
 
+    await logAction('order_deleted',
+      `Order ${deleteTarget.reference_code} (${deleteTarget.customer_name}) permanently deleted`,
+      null, deleteTarget.reference_code);
     setOrders(prev => prev.filter(o => o.id !== deleteTarget.id));
     if (selected?.id === deleteTarget.id) setSelected(null);
     setDeleteTarget(null);
@@ -615,17 +684,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'map', label: '🗺 Rider Map' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -741,6 +810,54 @@ export default function AdminDashboard() {
 
         {/* ── Rider Map view ── */}
         {view === 'map' && <AllRidersMap />}
+
+        {/* ── Activity Log view ── */}
+        {view === 'activity' && (
+          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>All Admin Actions</p>
+              <button onClick={loadActivityLog} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--navy)', background: 'white', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                <RefreshCw size={12} /> Refresh
+              </button>
+            </div>
+            {loadingLog ? (
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)', fontSize: '0.88rem' }}>Loading…</div>
+            ) : activityLog.length === 0 ? (
+              <div style={{ padding: '60px', textAlign: 'center' }}>
+                <p style={{ fontSize: '2rem', marginBottom: '10px' }}>📋</p>
+                <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>No activity recorded yet. Actions like status changes, rider assignments, and order deletions will appear here.</p>
+              </div>
+            ) : (
+              <div>
+                {activityLog.map(log => {
+                  const actionColors = { status_update: '#a671e4', rider_assigned: '#27ae60', order_deleted: '#e74c3c', financials_saved: '#e67e22' };
+                  const color = actionColors[log.action] || 'var(--gray)';
+                  return (
+                    <div key={log.id} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', padding: '14px 22px', borderBottom: '1px solid rgba(166,113,228,0.06)' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                        <span style={{ fontSize: '0.9rem' }}>
+                          {log.action === 'status_update' ? '🔄' : log.action === 'rider_assigned' ? '🏍️' : log.action === 'order_deleted' ? '🗑️' : '💰'}
+                        </span>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: '0.86rem', color: 'var(--navy)', fontWeight: 600, marginBottom: '2px' }}>{log.description}</p>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--gray)' }}>{log.actor_name}</span>
+                          {log.reference_code && (
+                            <span style={{ fontSize: '0.70rem', fontWeight: 700, color: color, background: `${color}12`, padding: '1px 7px', borderRadius: '10px', fontFamily: 'monospace' }}>{log.reference_code}</span>
+                          )}
+                          <span style={{ fontSize: '0.70rem', color: 'var(--gray)', marginLeft: 'auto' }}>
+                            {new Date(log.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Table — orders view only */}
         {view === 'orders' && (

@@ -335,22 +335,25 @@ export default function AdminDashboard() {
 
   const handleSignOut = async () => { await supabase.auth.signOut(); navigate('/admin/login'); };
 
+  // Notify all admins + the order's sales rep (if any). Riders are excluded.
+  const notifyAdminsAndSales = async (order, title, body) => {
+    const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin').eq('is_active', true);
+    const inserts = (admins || []).map(a => ({ user_id: a.id, title, body, order_id: order?.id || null }));
+    if (order?.assigned_sales_id)
+      inserts.push({ user_id: order.assigned_sales_id, title, body, order_id: order?.id || null });
+    if (inserts.length) await supabase.from('notifications').insert(inserts);
+  };
+
   const handleStatusUpdate = async (orderId, newStatus) => {
     setUpdating(true);
     await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     if (selected?.id === orderId) setSelected(prev => ({ ...prev, status: newStatus }));
 
-    // Notify assigned staff with the actual new status
     const order = orders.find(o => o.id === orderId);
     const label = statusLabel(newStatus).en;
-    const notifBody = `${order?.reference_code || 'Order'} status → ${label}`;
-    const inserts = [];
-    if (order?.assigned_sales_id)
-      inserts.push({ user_id: order.assigned_sales_id, title: 'Status Updated', body: notifBody, order_id: orderId });
-    if (order?.assigned_rider_id)
-      inserts.push({ user_id: order.assigned_rider_id, title: 'Status Updated', body: notifBody, order_id: orderId });
-    if (inserts.length) await supabase.from('notifications').insert(inserts);
+    await notifyAdminsAndSales(order, 'Status Updated / Na-update ang Status',
+      `${order?.reference_code || 'Order'} status → ${label}`);
 
     await logAction('status_update',
       `Status changed to "${label}" for ${order?.reference_code || orderId}`,
@@ -380,6 +383,8 @@ export default function AdminDashboard() {
       ? { ...o, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }
       : o));
     setSelected(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }));
+    await notifyAdminsAndSales(selected, '🚚 Rider Assigned / Na-assign ang Rider',
+      `Rider "${riderName}" assigned to ${selected.reference_code}.`);
     await logAction('rider_assigned',
       `Rider "${riderName}" assigned to ${selected.reference_code}`,
       selected.id, selected.reference_code);
@@ -658,7 +663,7 @@ export default function AdminDashboard() {
                           <p style={{ color: 'white', fontSize: '0.82rem', fontWeight: n.is_read ? 500 : 700, marginBottom: '2px' }}>{n.title}</p>
                           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', lineHeight: 1.4 }}>{n.body}</p>
                           <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.68rem', marginTop: '4px' }}>
-                            {new Date(n.created_at).toLocaleString()}
+                            {new Date(n.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
                       </div>
@@ -847,7 +852,7 @@ export default function AdminDashboard() {
                             <span style={{ fontSize: '0.70rem', fontWeight: 700, color: color, background: `${color}12`, padding: '1px 7px', borderRadius: '10px', fontFamily: 'monospace' }}>{log.reference_code}</span>
                           )}
                           <span style={{ fontSize: '0.70rem', color: 'var(--gray)', marginLeft: 'auto' }}>
-                            {new Date(log.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {new Date(log.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
                           </span>
                         </div>
                       </div>
@@ -913,7 +918,7 @@ export default function AdminDashboard() {
                         </td>
                         <td style={{ padding: '14px 16px', color: 'var(--navy)' }}>{order.product_name}</td>
                         <td style={{ padding: '14px 16px', color: 'var(--gray)', whiteSpace: 'nowrap', fontSize: '0.80rem' }}>
-                          {new Date(order.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {new Date(order.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}
                         </td>
                         <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
                           <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -1054,7 +1059,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
                         <p style={{ fontSize: '0.70rem', color: 'var(--gray)' }}>
-                          {new Date(deliveryProof.created_at).toLocaleString()} · Click photos to open full size
+                          {new Date(deliveryProof.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · Click photos to open full size
                         </p>
                       </div>
                     </div>

@@ -78,6 +78,17 @@ export default function OrderForm() {
       return;
     }
 
+    // Notify admins + assigned sales rep (if any)
+    const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin').eq('is_active', true);
+    const inserts = (admins || []).map(a => ({
+      user_id: a.id,
+      title: '📦 New Order! / Bagong Order!',
+      body: `${form.customer_name.trim()} ordered ${selectedProduct?.name || form.product_name}.`,
+    }));
+    if (form.sales_rep_id)
+      inserts.push({ user_id: form.sales_rep_id, title: '📦 New Order! / Bagong Order!', body: `${form.customer_name.trim()} ordered ${selectedProduct?.name || form.product_name}.` });
+    if (inserts.length) await supabase.from('notifications').insert(inserts);
+
     navigate('/order/confirmation', { state: { ref, productName: selectedProduct?.name } });
   };
 

@@ -113,7 +113,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
   };
 
   const fmtTime = (iso) =>
-    new Date(iso).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    new Date(iso).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
 
   // ── Render ────────────────────────────────────────────────
   return (

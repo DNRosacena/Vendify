@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, ShoppingCart } from 'lucide-react';
+import LogoIcon from './LogoIcon';
 
 export default function Navbar() {
   const [open, setOpen]         = useState(false);
@@ -35,9 +36,7 @@ export default function Navbar() {
 
         {/* Logo */}
         <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '36px', height: '36px', background: 'linear-gradient(135deg, var(--blue), var(--red))', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ color: 'white', fontWeight: 900, fontSize: '1rem' }}>V</span>
-          </div>
+          <LogoIcon size={36} />
           <div>
             <p style={{ fontFamily: 'Playfair Display, serif', fontSize: '1.2rem', fontWeight: 800, color: 'white', lineHeight: 1 }}>Vendify</p>
             <p style={{ fontSize: '0.58rem', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Vending Solutions</p>

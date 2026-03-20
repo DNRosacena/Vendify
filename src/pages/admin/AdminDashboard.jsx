@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Package, Clock, CheckCircle, Truck, Star, XCircle,
          RefreshCw, ChevronDown, Search, User, Phone, MapPin, X,
-         MessageCircle, MapPinned, Receipt, Info, Plus, Trash2, AlertTriangle } from 'lucide-react';
+         MessageCircle, MapPinned, Receipt, Info, Plus, Trash2, AlertTriangle,
+         Bell } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -10,6 +11,7 @@ import { supabase } from '../../lib/supabase';
 import { formatDate, statusLabel } from '../../lib/utils';
 import OrderChat from '../../components/OrderChat';
 import AdminProducts from './AdminProducts';
+import LogoIcon from '../../components/LogoIcon';
 
 // Leaflet icon fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -180,7 +182,16 @@ export default function AdminDashboard() {
   const [availableRiders,    setAvailableRiders]    = useState([]);
   const [assigningRider,     setAssigningRider]     = useState(false);
 
+  // Delivery proof
+  const [deliveryProof,  setDeliveryProof]  = useState(null);
+
+  // Notifications
+  const [notifs,         setNotifs]         = useState([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const notifChannelRef = useRef(null);
+
   // Delete
+  const [adminEmail,     setAdminEmail]     = useState(null);  // auth email, stored at login
   const [deleteTarget,   setDeleteTarget]   = useState(null); // order to delete
   const [newLabel,     setNewLabel]     = useState('');
   const [newAmount,    setNewAmount]    = useState('');
@@ -196,7 +207,32 @@ export default function AdminDashboard() {
   const [genMonth,       setGenMonth]      = useState(new Date().getMonth() + 1);
   const [generating,     setGenerating]    = useState(false);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    return () => {
+      if (notifChannelRef.current) supabase.removeChannel(notifChannelRef.current);
+    };
+  }, []);
+
+  const loadNotifs = async (userId) => {
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    setNotifs(data || []);
+  };
+
+  const markNotifRead = async (id) => {
+    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    setNotifs(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+  };
+
+  const markAllNotifsRead = async (userId) => {
+    await supabase.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
+    setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
 
   // When selected order changes, reset drawer
   useEffect(() => {
@@ -206,7 +242,18 @@ export default function AdminDashboard() {
     setRiderOverride(selected.rider_commission_override != null ? String(selected.rider_commission_override) : '');
     loadBreakdown(selected.id);
     loadRiderLoc(selected);
+    loadDeliveryProof(selected.id);
   }, [selected?.id]);
+
+  const loadDeliveryProof = async (orderId) => {
+    setDeliveryProof(null);
+    const { data } = await supabase
+      .from('delivery_confirmations')
+      .select('*')
+      .eq('order_id', orderId)
+      .maybeSingle();
+    setDeliveryProof(data || null);
+  };
 
   // Cleanup rider channel on close
   useEffect(() => {
@@ -220,7 +267,21 @@ export default function AdminDashboard() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     const { data: profile  } = await supabase.from('users').select('*').eq('id', user.id).single();
-    if (profile) setAdminUser(profile);
+    if (profile) {
+      setAdminUser(profile);
+      setAdminEmail(user?.email);
+      await loadNotifs(user.id);
+      // Subscribe to realtime notifications for this admin
+      if (!notifChannelRef.current) {
+        notifChannelRef.current = supabase
+          .channel(`admin_notifs_${user.id}`)
+          .on('postgres_changes', {
+            event: 'INSERT', schema: 'public', table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          }, () => loadNotifs(user.id))
+          .subscribe();
+      }
+    }
 
     const { data } = await supabase
       .from('orders')
@@ -437,9 +498,8 @@ export default function AdminDashboard() {
 
   // ── Delete order ──────────────────────────────────────────
   const handleDeleteOrder = async (password) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const email = user?.email;
-    if (!email) return 'Admin email not found.';
+    const email = adminEmail;
+    if (!email) return 'Session expired. Please refresh the page.';
 
     // Re-authenticate
     const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
@@ -489,15 +549,56 @@ export default function AdminDashboard() {
       {/* Top bar */}
       <div style={{ background: 'var(--navy)', borderBottom: '1px solid rgba(166,113,228,0.15)', padding: '0 24px', height: '62px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, var(--blue), var(--red))', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ color: 'white', fontWeight: 900, fontSize: '0.9rem' }}>V</span>
-          </div>
+          <LogoIcon size={32} />
           <div>
             <p style={{ fontFamily: 'Playfair Display, serif', fontSize: '1rem', fontWeight: 800, color: 'white', lineHeight: 1 }}>Vendify</p>
             <p style={{ fontSize: '0.58rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Admin Dashboard</p>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          {/* Notification Bell */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => { setShowNotifPanel(p => !p); if (!showNotifPanel && adminUser) markAllNotifsRead(adminUser.id); }}
+              style={{ position: 'relative', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'rgba(255,255,255,0.75)', padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            >
+              <Bell size={15} />
+              {notifs.filter(n => !n.is_read).length > 0 && (
+                <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#e45b8f', color: 'white', borderRadius: '50%', width: '16px', height: '16px', fontSize: '0.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {notifs.filter(n => !n.is_read).length > 9 ? '9+' : notifs.filter(n => !n.is_read).length}
+                </span>
+              )}
+            </button>
+            {/* Notification dropdown */}
+            {showNotifPanel && (
+              <div style={{ position: 'absolute', top: '46px', right: 0, width: '320px', background: 'var(--navy)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', zIndex: 200, overflow: 'hidden' }}>
+                <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(166,113,228,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'white', fontWeight: 700, fontSize: '0.88rem' }}>Notifications</span>
+                  <button onClick={() => setShowNotifPanel(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: '2px' }}><X size={14} /></button>
+                </div>
+                <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                  {notifs.length === 0 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: '0.82rem' }}>No notifications</div>
+                  ) : notifs.map(n => (
+                    <div key={n.id} onClick={() => markNotifRead(n.id)}
+                      style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: n.is_read ? 'transparent' : 'rgba(166,113,228,0.08)', cursor: 'pointer', transition: 'background 0.15s' }}
+                    >
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        {!n.is_read && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a671e4', marginTop: '5px', flexShrink: 0 }} />}
+                        <div style={{ flex: 1, paddingLeft: n.is_read ? '14px' : 0 }}>
+                          <p style={{ color: 'white', fontSize: '0.82rem', fontWeight: n.is_read ? 500 : 700, marginBottom: '2px' }}>{n.title}</p>
+                          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', lineHeight: 1.4 }}>{n.body}</p>
+                          <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.68rem', marginTop: '4px' }}>
+                            {new Date(n.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: '0.82rem', color: 'white', fontWeight: 600 }}>{adminUser?.full_name || 'Admin'}</p>
             <p style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em' }}>ADMINISTRATOR</p>
@@ -806,6 +907,41 @@ export default function AdminDashboard() {
                     { Icon: User, label: 'Sales Rep', value: selected.assigned_sales?.full_name || 'Set by customer' },
                     { Icon: Truck,label: 'Rider',     value: selected.assigned_rider?.full_name || 'Unassigned' },
                   ]} />
+
+                  {/* Delivery Proof */}
+                  {deliveryProof && (
+                    <div>
+                      <p style={sectionLabelStyle}>Delivery Proof</p>
+                      <div style={{ marginTop: '10px', background: 'rgba(39,174,96,0.05)', border: '1px solid rgba(39,174,96,0.2)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <CheckCircle size={14} color="#27AE60" />
+                          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#27AE60' }}>Delivery Confirmed</span>
+                          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--gray)' }}>
+                            ₱{Number(deliveryProof.amount_received).toLocaleString('en-PH', { minimumFractionDigits: 2 })} received
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <div>
+                            <p style={{ fontSize: '0.68rem', color: 'var(--gray)', fontWeight: 600, marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Rider + Customer Selfie</p>
+                            <a href={deliveryProof.rider_selfie_url} target="_blank" rel="noreferrer">
+                              <img src={deliveryProof.rider_selfie_url} alt="Rider selfie"
+                                style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid rgba(39,174,96,0.2)', cursor: 'pointer' }} />
+                            </a>
+                          </div>
+                          <div>
+                            <p style={{ fontSize: '0.68rem', color: 'var(--gray)', fontWeight: 600, marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Signed Receipt</p>
+                            <a href={deliveryProof.receipt_url} target="_blank" rel="noreferrer">
+                              <img src={deliveryProof.receipt_url} alt="Receipt"
+                                style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid rgba(39,174,96,0.2)', cursor: 'pointer' }} />
+                            </a>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.70rem', color: 'var(--gray)' }}>
+                          {new Date(deliveryProof.created_at).toLocaleString()} · Click photos to open full size
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

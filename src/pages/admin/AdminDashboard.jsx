@@ -29,6 +29,18 @@ const riderIcon = L.divIcon({
 });
 
 const STATUSES = ['pending', 'confirmed', 'in_production', 'out_for_delivery', 'delivered', 'cancelled'];
+const STATUS_ORDER = ['pending', 'confirmed', 'in_production', 'out_for_delivery', 'delivered'];
+
+const isStatusBlocked = (order, newStatus) => {
+  // Delivered locks everything (proof check done async separately)
+  if (order.status === 'delivered') return true;
+  if (newStatus === 'cancelled') return false; // handled with auth separately
+  const curIdx = STATUS_ORDER.indexOf(order.status);
+  const newIdx = STATUS_ORDER.indexOf(newStatus);
+  if (newIdx >= curIdx) return false; // forward always ok
+  if (order.status === 'confirmed' && newStatus === 'pending') return false; // exception
+  return !!order.assigned_rider_id; // block reversal if rider assigned
+};
 
 const STATUS_COLORS = {
   pending: '#3498DB', confirmed: '#2ECC71', in_production: '#a671e4',
@@ -193,6 +205,7 @@ export default function AdminDashboard() {
   // Delete
   const [adminEmail,     setAdminEmail]     = useState(null);  // auth email, stored at login
   const [deleteTarget,   setDeleteTarget]   = useState(null); // order to delete
+  const [cancelTarget,   setCancelTarget]   = useState(null); // order pending cancellation
   const [newLabel,     setNewLabel]     = useState('');
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
@@ -344,13 +357,62 @@ export default function AdminDashboard() {
     if (inserts.length) await supabase.from('notifications').insert(inserts);
   };
 
+  // ── Cancel with re-auth ───────────────────────────────────
+  const handleCancelOrder = async (password) => {
+    if (!cancelTarget) return 'No order selected.';
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.auth.signInWithPassword({ email: user.email, password });
+    if (error) return 'Incorrect password.';
+
+    const o = cancelTarget;
+    await supabase.from('orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', o.id);
+    setOrders(prev => prev.map(ord => ord.id === o.id ? { ...ord, status: 'cancelled' } : ord));
+    if (selected?.id === o.id) setSelected(prev => ({ ...prev, status: 'cancelled' }));
+    await notifyAdminsAndSales(o, 'Order Cancelled', `${o.reference_code} has been cancelled.`);
+    await logAction('status_update', `Order ${o.reference_code} cancelled`, o.id, o.reference_code);
+    setCancelTarget(null);
+  };
+
   const handleStatusUpdate = async (orderId, newStatus) => {
+    const order = orders.find(o => o.id === orderId);
+
+    // Delivery proof permanently locks the order
+    const { data: proof } = await supabase
+      .from('delivery_confirmations').select('id').eq('order_id', orderId).maybeSingle();
+    if (proof) {
+      alert('This order has verified delivery proof and is permanently locked.');
+      return;
+    }
+
+    // Cancellation requires admin re-auth — open modal instead
+    if (newStatus === 'cancelled') {
+      if (order?.status === 'delivered') {
+        alert('A delivered order cannot be cancelled.');
+        return;
+      }
+      setCancelTarget(order);
+      return;
+    }
+
+    if (order && isStatusBlocked(order, newStatus)) {
+      if (order.status === 'out_for_delivery' && order.assigned_rider_id) {
+        const { data: loc } = await supabase
+          .from('rider_locations').select('updated_at')
+          .eq('rider_id', order.assigned_rider_id).maybeSingle();
+        const isEnRoute = loc && (Date.now() - new Date(loc.updated_at).getTime()) < 10 * 60 * 1000;
+        alert(isEnRoute
+          ? `⚠️ Cannot revert: ${order.assigned_rider?.full_name || 'Rider'} is currently en route to the customer!`
+          : 'Cannot revert order status once a rider has been assigned.');
+      } else {
+        alert('Cannot revert order status once a rider has been assigned.');
+      }
+      return;
+    }
     setUpdating(true);
     await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     if (selected?.id === orderId) setSelected(prev => ({ ...prev, status: newStatus }));
 
-    const order = orders.find(o => o.id === orderId);
     const label = statusLabel(newStatus).en;
     await notifyAdminsAndSales(order, 'Status Updated / Na-update ang Status',
       `${order?.reference_code || 'Order'} status → ${label}`);
@@ -376,13 +438,12 @@ export default function AdminDashboard() {
     setAssigningRider(true);
     await supabase.from('orders').update({
       assigned_rider_id: riderId,
-      status: 'out_for_delivery',
       updated_at: new Date().toISOString(),
     }).eq('id', selected.id);
     setOrders(prev => prev.map(o => o.id === selected.id
-      ? { ...o, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }
+      ? { ...o, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } }
       : o));
-    setSelected(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_delivery' }));
+    setSelected(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } }));
     await notifyAdminsAndSales(selected, '🚚 Rider Assigned / Na-assign ang Rider',
       `Rider "${riderName}" assigned to ${selected.reference_code}.`);
     await logAction('rider_assigned',
@@ -1315,6 +1376,14 @@ export default function AdminDashboard() {
         />
       )}
 
+      {cancelTarget && (
+        <CancelConfirmModal
+          order={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onConfirm={handleCancelOrder}
+        />
+      )}
+
       <style>{`
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -1356,6 +1425,68 @@ function EmptyState({ icon, text }) {
       <span style={{ fontSize: '2.5rem' }}>{icon}</span>
       <p>{text}</p>
     </div>
+  );
+}
+
+// ── Cancel confirmation modal ──────────────────────────────────
+function CancelConfirmModal({ order, onClose, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password.trim()) { setError('Password is required.'); return; }
+    setLoading(true);
+    setError('');
+    const err = await onConfirm(password);
+    if (err) { setError(err); setLoading(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,7,24,0.6)', backdropFilter: 'blur(4px)', zIndex: 400 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '440px', background: 'white', borderRadius: '16px', boxShadow: '0 20px 60px rgba(17,7,24,0.25)', zIndex: 401, overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(231,76,60,0.12)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(231,76,60,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <XCircle size={18} color="#E74C3C" />
+          </div>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--navy)' }}>Cancel Order</p>
+            <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{order.reference_code} · {order.customer_name}</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray)' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '0.86rem', color: 'var(--gray)', lineHeight: 1.6 }}>
+            You are about to <strong style={{ color: '#E74C3C' }}>cancel</strong> this order.
+            Enter your admin password to confirm.
+          </p>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.05em', marginBottom: '6px' }}>ADMIN PASSWORD</label>
+            <input
+              type="password" autoFocus value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${error ? '#E74C3C' : 'rgba(166,113,228,0.2)'}`, borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'Inter,sans-serif', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box' }}
+            />
+            {error && <p style={{ fontSize: '0.78rem', color: '#E74C3C', marginTop: '5px' }}>{error}</p>}
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ flex: 1, padding: '11px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '9px', background: 'none', color: 'var(--gray)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              Back
+            </button>
+            <button type="submit" disabled={loading || !password.trim()}
+              style={{ flex: 1.5, padding: '11px', border: 'none', borderRadius: '9px', background: loading || !password.trim() ? 'rgba(231,76,60,0.15)' : '#E74C3C', color: loading || !password.trim() ? 'rgba(231,76,60,0.4)' : 'white', fontWeight: 700, fontSize: '0.88rem', cursor: loading || !password.trim() ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {loading ? 'Verifying…' : 'Cancel Order'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </>
   );
 }
 

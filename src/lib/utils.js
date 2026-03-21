@@ -1,6 +1,6 @@
 export function generateReferenceCode(productName = '') {
   const words  = productName.trim().split(/\s+/).filter(Boolean);
-  const prefix = words.slice(0, 3).map(w => w[0].toUpperCase()).join() || 'ORD';
+  const prefix = words.slice(0, 3).map(w => w[0].toUpperCase()).join('') || 'ORD';
   const num4   = String(Math.floor(Math.random() * 9000) + 1000);
   const alpha  = Array.from({ length: 4 }, () =>
     String.fromCharCode(65 + Math.floor(Math.random() * 26))

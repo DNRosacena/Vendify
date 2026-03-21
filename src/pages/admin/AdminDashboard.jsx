@@ -1192,8 +1192,9 @@ export default function AdminDashboard() {
               {/* ── Financials ── */}
               {drawerTab === 'financials' && (() => {
                 const o = selected;
+                const effectiveAmount = o.amount_received ?? deliveryProof?.amount_received ?? null;
                 const commA     = o.commission_a       || 0;
-                const commB     = o.amount_received != null ? (o.amount_received - (o.product_base_price || 0)) : 0;
+                const commB     = effectiveAmount != null ? (effectiveAmount - (o.product_base_price || 0)) : 0;
                 const feeA      = o.delivery_fee_a     || 0;
                 const feeB      = o.delivery_area === 'outside_ncr' ? 700 : 500;
                 const riderBase = feeA + feeB;
@@ -1201,7 +1202,7 @@ export default function AdminDashboard() {
                 const salesComp = o.delivery_fee_paid_by === 'employee' ? salesBase - riderBase : salesBase;
                 const salesFinal = o.sales_rep_commission_override ?? salesComp;
                 const riderFinal = o.rider_commission_override     ?? riderBase;
-                const profit     = (o.amount_received || 0) - salesFinal - riderFinal;
+                const profit     = (effectiveAmount || 0) - salesFinal - riderFinal;
 
                 const commRow = (label, value, highlight) => (
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid rgba(166,113,228,0.07)' }}>
@@ -1214,9 +1215,9 @@ export default function AdminDashboard() {
                 <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
                   {/* Order summary */}
-                  {o.amount_received != null && (
+                  {effectiveAmount != null && (
                     <div style={{ background: 'rgba(166,113,228,0.05)', border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
-                      {commRow('Amount Received', o.amount_received)}
+                      {commRow('Amount Received', effectiveAmount)}
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid rgba(166,113,228,0.07)' }}>
                         <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Paid By</span>
                         <span style={{ fontSize: '0.82rem', fontWeight: 700, color: o.delivery_fee_paid_by === 'employee' ? '#E67E22' : 'var(--navy)' }}>

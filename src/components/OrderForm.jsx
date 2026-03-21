@@ -65,11 +65,14 @@ export default function OrderForm() {
       landmark_lat:      form.landmark_lat,
       landmark_lng:      form.landmark_lng,
       contact_number:    form.contact_number.trim(),
-      assigned_sales_id: form.sales_rep_id,
+      assigned_sales_id: form.sales_rep_id || null,
       product_id:        form.product_id,
       product_name:      selectedProduct?.name || form.product_name,
       note:              form.note.trim(),
-      status:            'pending',
+      status:            form.sales_rep_id ? 'confirmed' : 'pending',
+      product_base_price: selectedProduct?.base_price         || 0,
+      commission_a:       selectedProduct?.product_commission || 0,
+      delivery_fee_a:     selectedProduct?.delivery_fee       || 0,
     });
 
     if (error) {

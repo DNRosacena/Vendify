@@ -29,9 +29,21 @@ export default function AdminLogin() {
     if (authErr) { setError('Invalid email or password. / Mali ang email o password.'); setLoading(false); return; }
 
     const { data: { user } } = await supabase.auth.getUser();
-    const { data: profile }  = await supabase.from('users').select('role').eq('id', user.id).single();
+    const { data: profile, error: profileErr } = await supabase
+      .from('users').select('role').eq('id', user.id).single();
 
-    if (!profile || profile.role !== 'admin') {
+    if (!profile) {
+      await supabase.auth.signOut();
+      setError(
+        profileErr?.code === 'PGRST116'
+          ? 'No staff profile found for this account. Ask your admin to add you in the Users panel first.'
+          : `Profile lookup failed: ${profileErr?.message}`
+      );
+      setLoading(false);
+      return;
+    }
+
+    if (profile.role !== 'admin') {
       await supabase.auth.signOut();
       setError('Access denied. Admin accounts only. / Naka-restrict ang access na ito.');
       setLoading(false);

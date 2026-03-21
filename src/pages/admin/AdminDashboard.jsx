@@ -200,6 +200,9 @@ export default function AdminDashboard() {
   // Delivery proof
   const [deliveryProof,  setDeliveryProof]  = useState(null);
 
+  // Profile modal
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
   // Notifications
   const [notifs,         setNotifs]         = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -221,8 +224,12 @@ export default function AdminDashboard() {
   const [activityLog,    setActivityLog]   = useState([]);
   const [loadingLog,     setLoadingLog]    = useState(false);
 
+  // Users state
+  const [users,          setUsers]         = useState([]);
+  const [loadingUsers,   setLoadingUsers]  = useState(false);
+
   // Sales History state
-  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity'
+  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map'
   const [reports,        setReports]       = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [genYear,        setGenYear]       = useState(new Date().getFullYear());
@@ -279,6 +286,16 @@ export default function AdminDashboard() {
       .limit(100);
     setActivityLog(data || []);
     setLoadingLog(false);
+  };
+
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .order('full_name');
+    setUsers(data || []);
+    setLoadingUsers(false);
   };
 
   const logAction = async (action, description, orderId = null, refCode = null) => {
@@ -745,10 +762,26 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: '0.82rem', color: 'white', fontWeight: 600 }}>{adminUser?.full_name || 'Admin'}</p>
-            <p style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em' }}>ADMINISTRATOR</p>
-          </div>
+          <button onClick={() => setShowProfileModal(true)} title="Edit my profile"
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '6px 12px 6px 6px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', transition: 'background 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.1)'}
+            onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.05)'}
+          >
+            {adminUser?.avatar_url ? (
+              <img src={adminUser.avatar_url} alt={adminUser.full_name}
+                style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(166,113,228,0.6)', flexShrink: 0 }} />
+            ) : (
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#a671e4,#fe78e3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span style={{ color: 'white', fontWeight: 800, fontSize: '0.75rem' }}>
+                  {adminUser?.full_name?.split(' ').filter(Boolean).slice(0,2).map(p=>p[0]).join('').toUpperCase() || 'A'}
+                </span>
+              </div>
+            )}
+            <div style={{ textAlign: 'left' }}>
+              <p style={{ fontSize: '0.82rem', color: 'white', fontWeight: 600, margin: 0 }}>{adminUser?.full_name || 'Admin'}</p>
+              <p style={{ fontSize: '0.60rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', margin: 0 }}>ADMINISTRATOR</p>
+            </div>
+          </button>
           <button onClick={handleSignOut} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'rgba(255,255,255,0.65)', fontSize: '0.8rem', padding: '7px 12px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
             <LogOut size={13} /> Sign Out
           </button>
@@ -761,17 +794,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -783,8 +816,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats — current month only (hidden on Products/Map view) */}
-        {view !== 'products' && view !== 'map' && <>
+        {/* Stats — current month only (hidden on Products/Map/Users view) */}
+        {view !== 'products' && view !== 'map' && view !== 'users' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />
@@ -934,6 +967,64 @@ export default function AdminDashboard() {
                           </span>
                         </div>
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Users view ── */}
+        {view === 'users' && (
+          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Staff Members</p>
+              <button onClick={loadUsers} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--navy)', background: 'white', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                <RefreshCw size={12} /> Refresh
+              </button>
+            </div>
+            {loadingUsers ? (
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)', fontSize: '0.88rem' }}>Loading…</div>
+            ) : users.length === 0 ? (
+              <div style={{ padding: '60px', textAlign: 'center' }}>
+                <p style={{ fontSize: '2rem', marginBottom: '10px' }}>👥</p>
+                <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>No users found.</p>
+              </div>
+            ) : (
+              <div>
+                {users.map(u => {
+                  const roleColors = { admin: '#fe78e3', sales: '#a671e4', rider: '#27ae60' };
+                  const roleColor  = roleColors[u.role] || 'var(--gray)';
+                  const initials   = u.full_name
+                    ? u.full_name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase()
+                    : '?';
+                  return (
+                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 22px', borderBottom: '1px solid rgba(166,113,228,0.06)' }}>
+                      {/* Avatar */}
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} alt={u.full_name}
+                          style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `2px solid ${roleColor}40` }} />
+                      ) : (
+                        <div style={{ width: 44, height: 44, borderRadius: '50%', background: `${roleColor}18`, border: `2px solid ${roleColor}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: roleColor }}>{initials}</span>
+                        </div>
+                      )}
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.92rem' }}>{u.full_name}</p>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, color: roleColor, background: `${roleColor}12`, padding: '2px 8px', borderRadius: '20px', letterSpacing: '0.05em' }}>{u.role?.toUpperCase()}</span>
+                          {!u.is_active && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#e74c3c', background: 'rgba(231,76,60,0.1)', padding: '2px 8px', borderRadius: '20px' }}>INACTIVE</span>}
+                        </div>
+                        <div style={{ display: 'flex', gap: '14px', marginTop: '3px', flexWrap: 'wrap' }}>
+                          {u.email && <span style={{ fontSize: '0.78rem', color: 'var(--gray)', display: 'flex', alignItems: 'center', gap: '4px' }}>✉ {u.email}</span>}
+                          {u.phone && <span style={{ fontSize: '0.78rem', color: 'var(--gray)', display: 'flex', alignItems: 'center', gap: '4px' }}>📞 {u.phone}</span>}
+                          {u.created_at && <span style={{ fontSize: '0.78rem', color: 'var(--gray)' }}>Joined {new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                        </div>
+                      </div>
+                      {/* Active dot */}
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: u.is_active ? '#27ae60' : '#95a5a6', flexShrink: 0 }} title={u.is_active ? 'Active' : 'Inactive'} />
                     </div>
                   );
                 })}
@@ -1413,6 +1504,15 @@ export default function AdminDashboard() {
         />
       )}
 
+      {showProfileModal && (
+        <ProfileModal
+          user={adminUser}
+          email={adminEmail}
+          onClose={() => setShowProfileModal(false)}
+          onUpdate={(updated) => setAdminUser(prev => ({ ...prev, ...updated }))}
+        />
+      )}
+
       <style>{`
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -1514,6 +1614,171 @@ function CancelConfirmModal({ order, onClose, onConfirm }) {
             </button>
           </div>
         </form>
+      </div>
+    </>
+  );
+}
+
+// ── Admin Profile Modal ──────────────────────────────────────────────────────
+function ProfileModal({ user, email, onClose, onUpdate }) {
+  const [tab,       setTab]       = useState('profile');
+  const [name,      setName]      = useState(user?.full_name || '');
+  const [phone,     setPhone]     = useState(user?.phone || '');
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || null);
+  const [uploading, setUploading] = useState(false);
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState('');
+  const [success,   setSuccess]   = useState('');
+  const [currPass,  setCurrPass]  = useState('');
+  const [newPass,   setNewPass]   = useState('');
+  const [confPass,  setConfPass]  = useState('');
+  const [pwSaving,  setPwSaving]  = useState(false);
+  const [pwError,   setPwError]   = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const fileRef = useRef(null);
+
+  const initials = (user?.full_name || 'A')
+    .split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setError('Max file size is 5 MB.'); return; }
+    setUploading(true); setError('');
+    const ext  = file.name.split('.').pop().toLowerCase();
+    const path = `avatars/${user.id}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('profile-pictures').upload(path, file, { upsert: true });
+    if (upErr) { setError('Upload failed: ' + upErr.message); setUploading(false); return; }
+    const { data: { publicUrl } } = supabase.storage.from('profile-pictures').getPublicUrl(path);
+    await supabase.from('users').update({ avatar_url: publicUrl }).eq('id', user.id);
+    setAvatarUrl(publicUrl);
+    onUpdate({ avatar_url: publicUrl });
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name cannot be empty.'); return; }
+    setSaving(true); setError(''); setSuccess('');
+    const { error: err } = await supabase.from('users').update({
+      full_name: name.trim(), phone: phone.trim() || null,
+    }).eq('id', user.id);
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    onUpdate({ full_name: name.trim(), phone: phone.trim() || null });
+    setSuccess('Profile updated!');
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (!currPass || !newPass) { setPwError('All fields are required.'); return; }
+    if (newPass.length < 6)   { setPwError('New password must be at least 6 characters.'); return; }
+    if (newPass !== confPass)  { setPwError('Passwords do not match.'); return; }
+    setPwSaving(true); setPwError(''); setPwSuccess('');
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password: currPass });
+    if (authErr) { setPwError('Incorrect current password.'); setPwSaving(false); return; }
+    const { error: pwErr } = await supabase.auth.updateUser({ password: newPass });
+    setPwSaving(false);
+    if (pwErr) { setPwError(pwErr.message); return; }
+    setPwSuccess('Password changed successfully!');
+    setCurrPass(''); setNewPass(''); setConfPass('');
+  };
+
+  const inp = { width:'100%', padding:'10px 12px', border:'1px solid rgba(166,113,228,0.2)', borderRadius:'8px', fontSize:'0.88rem', fontFamily:'Inter,sans-serif', outline:'none', color:'var(--navy)', boxSizing:'border-box' };
+  const lbl = { display:'block', fontSize:'0.70rem', fontWeight:700, color:'var(--gray)', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'6px' };
+  const btn = (primary, disabled) => ({ flex: primary ? 1.5 : 1, padding:'11px', border: primary ? 'none' : '1px solid rgba(166,113,228,0.2)', borderRadius:'9px', background: primary ? (disabled ? 'rgba(166,113,228,0.3)' : 'linear-gradient(135deg,#a671e4,#fe78e3)') : 'none', color: primary ? 'white' : 'var(--gray)', fontWeight: primary ? 700 : 600, fontSize:'0.88rem', cursor: disabled ? 'not-allowed' : 'pointer', fontFamily:'Inter,sans-serif' });
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(17,7,24,0.6)', backdropFilter:'blur(4px)', zIndex:400 }} />
+      <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'460px', background:'white', borderRadius:'16px', boxShadow:'0 20px 60px rgba(17,7,24,0.25)', zIndex:401, overflow:'hidden', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+
+        {/* Header */}
+        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid rgba(166,113,228,0.1)', display:'flex', alignItems:'center', gap:'12px' }}>
+          <div style={{ width:38, height:38, borderRadius:'10px', background:'rgba(166,113,228,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <User size={18} color="#a671e4" />
+          </div>
+          <div>
+            <p style={{ fontWeight:800, fontSize:'0.95rem', color:'var(--navy)', margin:0 }}>My Profile</p>
+            <p style={{ fontSize:'0.74rem', color:'var(--gray)', margin:0 }}>Update your info and password</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--gray)', display:'flex' }}><X size={18} /></button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display:'flex', borderBottom:'1px solid rgba(166,113,228,0.1)' }}>
+          {[['profile','Profile'],['password','Change Password']].map(([id, label]) => (
+            <button key={id} onClick={() => { setTab(id); setError(''); setSuccess(''); setPwError(''); setPwSuccess(''); }}
+              style={{ flex:1, padding:'11px', border:'none', background:'none', cursor:'pointer', fontSize:'0.82rem', fontWeight:700, fontFamily:'Inter,sans-serif', color:tab===id?'#a671e4':'var(--gray)', borderBottom:tab===id?'2px solid #a671e4':'2px solid transparent', transition:'all 0.15s' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{ padding:'24px', overflowY:'auto', flex:1 }}>
+          {tab === 'profile' && (
+            <form onSubmit={handleSave} style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+              {/* Avatar */}
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'10px' }}>
+                <div style={{ position:'relative', cursor:'pointer' }} onClick={() => fileRef.current?.click()}>
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt={name} style={{ width:84, height:84, borderRadius:'50%', objectFit:'cover', border:'3px solid rgba(166,113,228,0.3)' }} />
+                    : <div style={{ width:84, height:84, borderRadius:'50%', background:'linear-gradient(135deg,#a671e4,#fe78e3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <span style={{ color:'white', fontWeight:800, fontSize:'1.6rem' }}>{initials}</span>
+                      </div>
+                  }
+                  <div style={{ position:'absolute', bottom:0, right:0, width:26, height:26, borderRadius:'50%', background:'#a671e4', border:'2px solid white', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {uploading
+                      ? <div style={{ width:12, height:12, border:'2px solid white', borderTop:'2px solid transparent', borderRadius:'50%', animation:'spin 0.7s linear infinite' }} />
+                      : <Plus size={12} color="white" />}
+                  </div>
+                </div>
+                <p style={{ fontSize:'0.72rem', color:'var(--gray)', margin:0 }}>Click photo to change · max 5 MB</p>
+                <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display:'none' }} />
+              </div>
+              <div><label style={lbl}>Full Name</label>
+                <input value={name} onChange={e => { setName(e.target.value); setError(''); setSuccess(''); }} style={inp} placeholder="Your full name" />
+              </div>
+              <div><label style={lbl}>Role</label>
+                <input value="ADMIN" readOnly style={{ ...inp, background:'rgba(166,113,228,0.04)', color:'var(--gray)', cursor:'default' }} />
+              </div>
+              <div><label style={lbl}>Email</label>
+                <input value={email||''} readOnly style={{ ...inp, background:'rgba(166,113,228,0.04)', color:'var(--gray)', cursor:'default' }} />
+              </div>
+              <div><label style={lbl}>Phone</label>
+                <input value={phone} onChange={e => { setPhone(e.target.value); setSuccess(''); }} style={inp} placeholder="e.g. 09XX XXX XXXX" />
+              </div>
+              {error   && <p style={{ fontSize:'0.82rem', color:'#e74c3c', margin:0 }}>{error}</p>}
+              {success && <p style={{ fontSize:'0.82rem', color:'#27ae60', margin:0 }}>{success}</p>}
+              <div style={{ display:'flex', gap:'10px' }}>
+                <button type="button" onClick={onClose} style={btn(false, false)}>Cancel</button>
+                <button type="submit" disabled={saving} style={btn(true, saving)}>{saving ? 'Saving…' : 'Save Changes'}</button>
+              </div>
+            </form>
+          )}
+
+          {tab === 'password' && (
+            <form onSubmit={handlePasswordChange} style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+              <div><label style={lbl}>Current Password</label>
+                <input type="password" value={currPass} onChange={e => { setCurrPass(e.target.value); setPwError(''); setPwSuccess(''); }} style={inp} placeholder="Enter current password" autoFocus />
+              </div>
+              <div><label style={lbl}>New Password</label>
+                <input type="password" value={newPass} onChange={e => { setNewPass(e.target.value); setPwError(''); setPwSuccess(''); }} style={inp} placeholder="At least 6 characters" />
+              </div>
+              <div><label style={lbl}>Confirm New Password</label>
+                <input type="password" value={confPass} onChange={e => { setConfPass(e.target.value); setPwError(''); setPwSuccess(''); }} style={inp} placeholder="Re-enter new password" />
+              </div>
+              {pwError   && <p style={{ fontSize:'0.82rem', color:'#e74c3c', margin:0 }}>{pwError}</p>}
+              {pwSuccess && <p style={{ fontSize:'0.82rem', color:'#27ae60', margin:0 }}>{pwSuccess}</p>}
+              <div style={{ display:'flex', gap:'10px' }}>
+                <button type="button" onClick={onClose} style={btn(false, false)}>Cancel</button>
+                <button type="submit" disabled={pwSaving} style={btn(true, pwSaving)}>{pwSaving ? 'Changing…' : 'Change Password'}</button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </>
   );
@@ -1651,3 +1916,4 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
     </>
   );
 }
+

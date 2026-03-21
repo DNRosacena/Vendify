@@ -1521,7 +1521,10 @@ export default function AdminDashboard() {
           user={adminUser}
           email={adminEmail}
           onClose={() => setShowProfileModal(false)}
-          onUpdate={(updated) => setAdminUser(prev => ({ ...prev, ...updated }))}
+          onUpdate={(updated) => {
+            setAdminUser(prev => ({ ...prev, ...updated }));
+            if (updated.email) setAdminEmail(updated.email);
+          }}
         />
       )}
 
@@ -1686,6 +1689,7 @@ function ProfileModal({ user, email, onClose, onUpdate }) {
   const [tab,       setTab]       = useState('profile');
   const [name,      setName]      = useState(user?.full_name || '');
   const [phone,     setPhone]     = useState(user?.phone || '');
+  const [newEmail,  setNewEmail]  = useState(email || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || null);
   const [uploading, setUploading] = useState(false);
   const [saving,    setSaving]    = useState(false);
@@ -1721,15 +1725,29 @@ function ProfileModal({ user, email, onClose, onUpdate }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!name.trim()) { setError('Name cannot be empty.'); return; }
+    if (!name.trim())    { setError('Name cannot be empty.'); return; }
+    if (!newEmail.trim()) { setError('Email cannot be empty.'); return; }
     setSaving(true); setError(''); setSuccess('');
+
+    // Update email in Supabase Auth if changed
+    const emailChanged = newEmail.trim().toLowerCase() !== (email || '').toLowerCase();
+    if (emailChanged) {
+      const { error: emailErr } = await supabase.auth.updateUser({ email: newEmail.trim() });
+      if (emailErr) { setError(emailErr.message); setSaving(false); return; }
+    }
+
+    // Update users table
     const { error: err } = await supabase.from('users').update({
-      full_name: name.trim(), phone: phone.trim() || null,
+      full_name: name.trim(),
+      phone:     phone.trim() || null,
+      email:     newEmail.trim(),
     }).eq('id', user.id);
     setSaving(false);
     if (err) { setError(err.message); return; }
-    onUpdate({ full_name: name.trim(), phone: phone.trim() || null });
-    setSuccess('Profile updated!');
+    onUpdate({ full_name: name.trim(), phone: phone.trim() || null, email: newEmail.trim() });
+    setSuccess(emailChanged
+      ? 'Profile updated! Check your new email for a confirmation link.'
+      : 'Profile updated!');
   };
 
   const handlePasswordChange = async (e) => {
@@ -1807,7 +1825,8 @@ function ProfileModal({ user, email, onClose, onUpdate }) {
                 <input value="ADMIN" readOnly style={{ ...inp, background:'rgba(166,113,228,0.04)', color:'var(--gray)', cursor:'default' }} />
               </div>
               <div><label style={lbl}>Email</label>
-                <input value={email||''} readOnly style={{ ...inp, background:'rgba(166,113,228,0.04)', color:'var(--gray)', cursor:'default' }} />
+                <input type="email" value={newEmail} onChange={e => { setNewEmail(e.target.value); setError(''); setSuccess(''); }} style={inp} placeholder="your@email.com" />
+                <p style={{ fontSize:'0.70rem', color:'var(--gray)', marginTop:'4px', marginBottom:0 }}>Changing email sends a confirmation link to the new address.</p>
               </div>
               <div><label style={lbl}>Phone</label>
                 <input value={phone} onChange={e => { setPhone(e.target.value); setSuccess(''); }} style={inp} placeholder="e.g. 09XX XXX XXXX" />

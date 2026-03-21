@@ -227,6 +227,8 @@ export default function AdminDashboard() {
   // Users state
   const [users,          setUsers]         = useState([]);
   const [loadingUsers,   setLoadingUsers]  = useState(false);
+  const [usersError,     setUsersError]    = useState('');
+  const [selectedUser,   setSelectedUser]  = useState(null);
 
   // Sales History state
   const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map'
@@ -290,10 +292,12 @@ export default function AdminDashboard() {
 
   const loadUsers = async () => {
     setLoadingUsers(true);
-    const { data } = await supabase
+    setUsersError('');
+    const { data, error } = await supabase
       .from('users')
       .select('*')
       .order('full_name');
+    if (error) setUsersError(error.message);
     setUsers(data || []);
     setLoadingUsers(false);
   };
@@ -986,6 +990,11 @@ export default function AdminDashboard() {
             </div>
             {loadingUsers ? (
               <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)', fontSize: '0.88rem' }}>Loading…</div>
+            ) : usersError ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <p style={{ color: '#e74c3c', fontSize: '0.86rem', marginBottom: '10px' }}>Failed to load users: {usersError}</p>
+                <p style={{ color: 'var(--gray)', fontSize: '0.78rem' }}>Make sure the <code>users</code> table has an RLS policy allowing admins to read all rows.</p>
+              </div>
             ) : users.length === 0 ? (
               <div style={{ padding: '60px', textAlign: 'center' }}>
                 <p style={{ fontSize: '2rem', marginBottom: '10px' }}>👥</p>
@@ -1000,7 +1009,10 @@ export default function AdminDashboard() {
                     ? u.full_name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase()
                     : '?';
                   return (
-                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 22px', borderBottom: '1px solid rgba(166,113,228,0.06)' }}>
+                    <div key={u.id} onClick={() => setSelectedUser(u)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 22px', borderBottom: '1px solid rgba(166,113,228,0.06)', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(166,113,228,0.04)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       {/* Avatar */}
                       {u.avatar_url ? (
                         <img src={u.avatar_url} alt={u.full_name}
@@ -1013,13 +1025,13 @@ export default function AdminDashboard() {
                       {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.92rem' }}>{u.full_name}</p>
+                          <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.92rem', margin: 0 }}>{u.full_name}</p>
                           <span style={{ fontSize: '0.68rem', fontWeight: 700, color: roleColor, background: `${roleColor}12`, padding: '2px 8px', borderRadius: '20px', letterSpacing: '0.05em' }}>{u.role?.toUpperCase()}</span>
                           {!u.is_active && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#e74c3c', background: 'rgba(231,76,60,0.1)', padding: '2px 8px', borderRadius: '20px' }}>INACTIVE</span>}
                         </div>
                         <div style={{ display: 'flex', gap: '14px', marginTop: '3px', flexWrap: 'wrap' }}>
-                          {u.email && <span style={{ fontSize: '0.78rem', color: 'var(--gray)', display: 'flex', alignItems: 'center', gap: '4px' }}>✉ {u.email}</span>}
-                          {u.phone && <span style={{ fontSize: '0.78rem', color: 'var(--gray)', display: 'flex', alignItems: 'center', gap: '4px' }}>📞 {u.phone}</span>}
+                          {u.email && <span style={{ fontSize: '0.78rem', color: 'var(--gray)' }}>✉ {u.email}</span>}
+                          {u.phone && <span style={{ fontSize: '0.78rem', color: 'var(--gray)' }}>📞 {u.phone}</span>}
                           {u.created_at && <span style={{ fontSize: '0.78rem', color: 'var(--gray)' }}>Joined {new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
                         </div>
                       </div>
@@ -1513,6 +1525,10 @@ export default function AdminDashboard() {
         />
       )}
 
+      {selectedUser && (
+        <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} />
+      )}
+
       <style>{`
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -1614,6 +1630,52 @@ function CancelConfirmModal({ order, onClose, onConfirm }) {
             </button>
           </div>
         </form>
+      </div>
+    </>
+  );
+}
+
+// ── User Detail Modal ────────────────────────────────────────────────────────
+function UserDetailModal({ user: u, onClose }) {
+  const roleColors = { admin: '#fe78e3', sales: '#a671e4', rider: '#27ae60' };
+  const roleColor  = roleColors[u.role] || '#95a5a6';
+  const initials   = u.full_name
+    ? u.full_name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase()
+    : '?';
+
+  const row = (icon, text, color) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 0', borderBottom: '1px solid rgba(166,113,228,0.07)' }}>
+      <span style={{ fontSize: '0.9rem', color: color || 'var(--gray)', width: 18, textAlign: 'center' }}>{icon}</span>
+      <span style={{ fontSize: '0.88rem', color: color || 'var(--gray)', flex: 1 }}>{text}</span>
+    </div>
+  );
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,7,24,0.55)', backdropFilter: 'blur(4px)', zIndex: 400 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '360px', background: 'white', borderRadius: '18px', boxShadow: '0 20px 60px rgba(17,7,24,0.22)', zIndex: 401, overflow: 'hidden' }}>
+        {/* Header bar */}
+        <div style={{ background: `${roleColor}10`, padding: '22px 24px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', position: 'relative', borderBottom: '1px solid rgba(166,113,228,0.1)' }}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray)', display: 'flex' }}><X size={18} /></button>
+          {u.avatar_url ? (
+            <img src={u.avatar_url} alt={u.full_name} style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: `3px solid ${roleColor}60` }} />
+          ) : (
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: `${roleColor}20`, border: `3px solid ${roleColor}50`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontWeight: 800, fontSize: '1.5rem', color: roleColor }}>{initials}</span>
+            </div>
+          )}
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--navy)', margin: '0 0 6px' }}>{u.full_name}</p>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: roleColor, background: `${roleColor}15`, padding: '3px 10px', borderRadius: '20px', letterSpacing: '0.06em' }}>{u.role?.toUpperCase()}</span>
+          </div>
+        </div>
+        {/* Detail rows */}
+        <div style={{ padding: '8px 24px 20px' }}>
+          {u.email     && row('✉', u.email)}
+          {u.phone     && row('📞', u.phone)}
+          {u.created_at && row('📅', 'Joined ' + new Date(u.created_at).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }))}
+          {row(u.is_active ? '✅' : '🚫', u.is_active ? 'Active' : 'Inactive', u.is_active ? '#27ae60' : '#e74c3c')}
+        </div>
       </div>
     </>
   );

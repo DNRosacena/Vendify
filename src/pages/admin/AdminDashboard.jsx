@@ -32,9 +32,12 @@ const STATUSES = ['pending', 'confirmed', 'in_production', 'out_for_delivery', '
 const STATUS_ORDER = ['pending', 'confirmed', 'in_production', 'out_for_delivery', 'delivered'];
 
 const isStatusBlocked = (order, newStatus) => {
-  // Delivered locks everything (proof check done async separately)
+  // Delivered locks everything — no changes at all
   if (order.status === 'delivered') return true;
-  if (newStatus === 'cancelled') return false; // handled with auth separately
+  // Cancelled is handled with auth separately — not blocked here
+  if (newStatus === 'cancelled') return false;
+  // Out for delivery: only cancellation is allowed (handled above)
+  if (order.status === 'out_for_delivery') return true;
   const curIdx = STATUS_ORDER.indexOf(order.status);
   const newIdx = STATUS_ORDER.indexOf(newStatus);
   if (newIdx >= curIdx) return false; // forward always ok
@@ -395,17 +398,9 @@ export default function AdminDashboard() {
     }
 
     if (order && isStatusBlocked(order, newStatus)) {
-      if (order.status === 'out_for_delivery' && order.assigned_rider_id) {
-        const { data: loc } = await supabase
-          .from('rider_locations').select('updated_at')
-          .eq('rider_id', order.assigned_rider_id).maybeSingle();
-        const isEnRoute = loc && (Date.now() - new Date(loc.updated_at).getTime()) < 10 * 60 * 1000;
-        alert(isEnRoute
-          ? `⚠️ Cannot revert: ${order.assigned_rider?.full_name || 'Rider'} is currently en route to the customer!`
-          : 'Cannot revert order status once a rider has been assigned.');
-      } else {
-        alert('Cannot revert order status once a rider has been assigned.');
-      }
+      alert(order.status === 'out_for_delivery'
+        ? '⚠️ Order is out for delivery. Only cancellation is allowed.'
+        : 'Cannot revert order status once a rider has been assigned.');
       return;
     }
     setUpdating(true);

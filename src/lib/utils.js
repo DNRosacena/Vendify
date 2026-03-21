@@ -1,8 +1,11 @@
-export function generateReferenceCode() {
-  const prefix = 'VT';
-  const date   = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${date}-${random}`;
+export function generateReferenceCode(productName = '') {
+  const words  = productName.trim().split(/\s+/).filter(Boolean);
+  const prefix = words.slice(0, 3).map(w => w[0].toUpperCase()).join() || 'ORD';
+  const num4   = String(Math.floor(Math.random() * 9000) + 1000);
+  const alpha  = Array.from({ length: 4 }, () =>
+    String.fromCharCode(65 + Math.floor(Math.random() * 26))
+  ).join('');
+  return `${prefix}-${num4}-${alpha}`;
 }
 
 export function formatDate(dateStr) {

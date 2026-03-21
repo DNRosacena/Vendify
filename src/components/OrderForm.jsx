@@ -55,7 +55,7 @@ export default function OrderForm() {
     setSubmitting(true);
 
     const selectedProduct = products.find(p => p.id === form.product_id);
-    const ref = generateReferenceCode();
+    const ref = generateReferenceCode(selectedProduct?.name || form.product_name);
 
     const { error } = await supabase.from('orders').insert({
       reference_code:    ref,

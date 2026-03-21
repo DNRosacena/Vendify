@@ -207,8 +207,9 @@ export default function AdminDashboard() {
 
   // Delete
   const [adminEmail,     setAdminEmail]     = useState(null);  // auth email, stored at login
-  const [deleteTarget,   setDeleteTarget]   = useState(null); // order to delete
-  const [cancelTarget,   setCancelTarget]   = useState(null); // order pending cancellation
+  const [deleteTarget,       setDeleteTarget]       = useState(null); // order to delete
+  const [cancelTarget,       setCancelTarget]       = useState(null); // order pending cancellation
+  const [deleteReportTarget, setDeleteReportTarget] = useState(null); // report to delete
   const [newLabel,     setNewLabel]     = useState('');
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
@@ -604,6 +605,21 @@ export default function AdminDashboard() {
     _triggerDownload(_buildCSV(rows), `vendify-sales-${monthYear}.csv`);
   };
 
+  const handleDeleteReport = async (password) => {
+    const email = adminEmail;
+    if (!email) return 'Session expired. Please refresh the page.';
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (authErr) return 'Incorrect password. Deletion cancelled.';
+    const { error: delErr } = await supabase.from('sales_reports').delete().eq('id', deleteReportTarget.id);
+    if (delErr) return delErr.message;
+    await logAction('report_deleted',
+      `Sales report for ${deleteReportTarget.month_year} deleted`,
+      null, deleteReportTarget.month_year);
+    setReports(prev => prev.filter(r => r.id !== deleteReportTarget.id));
+    setDeleteReportTarget(null);
+    return null;
+  };
+
   const saveFinancials = async () => {
     setSavingFinancials(true);
     const fields = {
@@ -852,10 +868,16 @@ export default function AdminDashboard() {
                           {new Date(r.generated_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </td>
                         <td style={{ padding: '13px 16px' }}>
-                          <button onClick={() => downloadReport(r.month_year)}
-                            style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                            ↓ CSV
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button onClick={() => downloadReport(r.month_year)}
+                              style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              ↓ CSV
+                            </button>
+                            <button onClick={() => setDeleteReportTarget(r)}
+                              style={{ fontSize: '0.78rem', color: '#E74C3C', fontWeight: 600, background: 'rgba(231,76,60,0.06)', border: '1px solid rgba(231,76,60,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1131,6 +1153,9 @@ export default function AdminDashboard() {
                     senderName={adminUser?.full_name || 'Admin'}
                     senderType="user"
                     senderId={adminUser?.id || null}
+                    salesId={selected.assigned_sales_id}
+                    riderId={selected.assigned_rider_id}
+                    referenceCode={selected.reference_code}
                   />
                 </div>
               )}
@@ -1380,6 +1405,14 @@ export default function AdminDashboard() {
         />
       )}
 
+      {deleteReportTarget && (
+        <DeleteReportModal
+          report={deleteReportTarget}
+          onClose={() => setDeleteReportTarget(null)}
+          onConfirm={handleDeleteReport}
+        />
+      )}
+
       <style>{`
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -1487,6 +1520,68 @@ function CancelConfirmModal({ order, onClose, onConfirm }) {
 }
 
 // ── Delete confirmation modal ──────────────────────────────────
+function DeleteReportModal({ report, onClose, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const monthLabel = new Date(report.month_year + '-01').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password.trim()) { setError('Password is required.'); return; }
+    setDeleting(true);
+    setError('');
+    const err = await onConfirm(password);
+    if (err) { setError(err); setDeleting(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,7,24,0.6)', backdropFilter: 'blur(4px)', zIndex: 400 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '440px', background: 'white', borderRadius: '16px', boxShadow: '0 20px 60px rgba(17,7,24,0.25)', zIndex: 401, overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(231,76,60,0.12)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(231,76,60,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertTriangle size={18} color="#E74C3C" />
+          </div>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--navy)' }}>Delete Report</p>
+            <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{monthLabel} · {report.order_count} orders</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--gray)' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '0.86rem', color: 'var(--gray)', lineHeight: 1.6 }}>
+            This will <strong style={{ color: '#E74C3C' }}>permanently delete</strong> the <strong>{monthLabel}</strong> report record.
+            The underlying orders are not affected. Enter your admin password to confirm.
+          </p>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.05em', marginBottom: '6px' }}>ADMIN PASSWORD</label>
+            <input type="password" autoFocus value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${error ? '#E74C3C' : 'rgba(166,113,228,0.2)'}`, borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'Inter,sans-serif', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box' }}
+            />
+            {error && <p style={{ fontSize: '0.78rem', color: '#E74C3C', marginTop: '5px' }}>{error}</p>}
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" onClick={onClose} disabled={deleting}
+              style={{ flex: 1, padding: '11px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '9px', background: 'none', color: 'var(--gray)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={deleting || !password.trim()}
+              style={{ flex: 1.5, padding: '11px', border: 'none', borderRadius: '9px', background: deleting || !password.trim() ? 'rgba(231,76,60,0.15)' : '#E74C3C', color: deleting || !password.trim() ? 'rgba(231,76,60,0.4)' : 'white', fontWeight: 700, fontSize: '0.88rem', cursor: deleting || !password.trim() ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {deleting ? 'Deleting…' : 'Delete Report'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </>
+  );
+}
+
 function DeleteConfirmModal({ order, onClose, onConfirm }) {
   const [password,  setPassword]  = useState('');
   const [error,     setError]     = useState('');

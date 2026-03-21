@@ -11,7 +11,7 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
  *  senderType  – 'customer' | 'user'
  *  senderId    – uuid (for staff) | null (for customers)
  */
-export default function OrderChat({ orderId, senderName, senderType, senderId }) {
+export default function OrderChat({ orderId, senderName, senderType, senderId, salesId, riderId, referenceCode }) {
   const [messages,  setMessages]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [text,      setText]      = useState('');
@@ -50,6 +50,26 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
     setLoading(false);
   };
 
+  // ── Notify all order participants except the sender ────────
+  const notifyChat = async () => {
+    const title = '💬 New Chat Message';
+    const body  = `${senderName} sent a message on order ${referenceCode || orderId}`;
+
+    const { data: admins } = await supabase
+      .from('users').select('id').eq('role', 'admin').eq('is_active', true);
+
+    const inserts = [];
+    for (const a of admins || []) {
+      if (a.id !== senderId) inserts.push({ user_id: a.id, title, body, order_id: orderId });
+    }
+    if (salesId && salesId !== senderId)
+      inserts.push({ user_id: salesId, title, body, order_id: orderId });
+    if (riderId && riderId !== senderId)
+      inserts.push({ user_id: riderId, title, body, order_id: orderId });
+
+    if (inserts.length) await supabase.from('notifications').insert(inserts);
+  };
+
   // ── Send text ─────────────────────────────────────────────
   const sendText = async () => {
     if (!text.trim()) return;
@@ -61,6 +81,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
       sender_type: senderType,
       content:     text.trim(),
     });
+    notifyChat(); // fire-and-forget
     setText('');
     await loadMessages();
     setSending(false);
@@ -98,6 +119,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId })
         file_name:   file.name,
         file_type:   isImage ? 'image' : 'file',
       });
+      notifyChat(); // fire-and-forget
       await loadMessages();
     }
     setUploading(false);

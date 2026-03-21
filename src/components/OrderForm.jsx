@@ -69,10 +69,7 @@ export default function OrderForm() {
       product_id:        form.product_id,
       product_name:      selectedProduct?.name || form.product_name,
       note:              form.note.trim(),
-      status:            form.sales_rep_id ? 'confirmed' : 'pending',
-      product_base_price: selectedProduct?.base_price         || 0,
-      commission_a:       selectedProduct?.product_commission || 0,
-      delivery_fee_a:     selectedProduct?.delivery_fee       || 0,
+      status:            'pending',
     });
 
     if (error) {

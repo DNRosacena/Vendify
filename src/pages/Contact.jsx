@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Phone, Mail, MapPin, MessageCircle, Send, Facebook } from 'lucide-react';
+import { Phone, Mail, MapPin, Send, Facebook } from 'lucide-react';
 
 export default function Contact() {
   const [form, setForm]   = useState({ name: '', email: '', phone: '', message: '' });
@@ -11,11 +11,10 @@ export default function Contact() {
   };
 
   const contactItems = [
-    { icon: Phone,          label: 'Call / Tumawag',     value: '+63 9XX XXX XXXX',          href: 'tel:+639XXXXXXXXX' },
-    { icon: MessageCircle,  label: 'Viber / WhatsApp',   value: '+63 9XX XXX XXXX',          href: '#' },
-    { icon: Mail,           label: 'Email',              value: 'info@vendotrack.ph',        href: 'mailto:info@vendotrack.ph' },
-    { icon: Facebook,       label: 'Facebook',           value: 'VendoTrack Philippines',    href: '#' },
-    { icon: MapPin,         label: 'Address',            value: 'Metro Manila, Philippines', href: '#' },
+    { icon: Phone,    label: 'Call / Tumawag', value: '09051870328',                        href: 'tel:+639051870328' },
+    { icon: Mail,     label: 'Email',          value: 'vendongbayan@gmail.com',             href: 'mailto:vendongbayan@gmail.com' },
+    { icon: Facebook, label: 'Facebook',       value: 'Piso Wifi Vending Machine',         href: 'https://www.facebook.com/pisowifivending' },
+    { icon: MapPin,   label: 'Address',        value: 'San Isidro, Rodriguez, Rizal, Philippines', href: '#' },
   ];
 
   return (

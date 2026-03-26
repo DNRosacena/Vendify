@@ -56,11 +56,15 @@ export default function Track() {
   const [searched,     setSearched]     = useState(false);
   const [riderLoc,     setRiderLoc]     = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
-  const channelRef = useRef(null);
+  const channelRef      = useRef(null);
+  const orderChannelRef = useRef(null);
 
   // Cleanup realtime channel on unmount / order change
   useEffect(() => {
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+    return () => {
+      if (channelRef.current)      supabase.removeChannel(channelRef.current);
+      if (orderChannelRef.current) supabase.removeChannel(orderChannelRef.current);
+    };
   }, []);
 
   const handleSearch = async () => {
@@ -72,15 +76,19 @@ export default function Track() {
     setSearched(true);
     setChatOpen(false);
 
-    // Remove old location channel
+    // Remove old channels
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
+    if (orderChannelRef.current) {
+      supabase.removeChannel(orderChannelRef.current);
+      orderChannelRef.current = null;
+    }
 
     const { data, error: err } = await supabase
       .from('orders')
-      .select('*, assigned_sales:assigned_sales_id(full_name)')
+      .select('*, assigned_sales:assigned_sales_id(full_name), delivery_type, lbc_tracking_number')
       .eq('reference_code', refCode.trim().toUpperCase())
       .single();
 
@@ -88,7 +96,24 @@ export default function Track() {
       setError('No order found with that reference code. Please check and try again.');
     } else {
       setOrder(data);
-      if (data.status === 'out_for_delivery' && data.assigned_rider_id) {
+
+      // Subscribe to live order status changes
+      orderChannelRef.current = supabase
+        .channel(`order_status_${data.id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'orders',
+          filter: `id=eq.${data.id}`,
+        }, async () => {
+          const { data: updated } = await supabase
+            .from('orders')
+            .select('*, assigned_sales:assigned_sales_id(full_name), delivery_type, lbc_tracking_number')
+            .eq('id', data.id)
+            .single();
+          if (updated) setOrder(updated);
+        })
+        .subscribe();
+
+      if (data.status === 'out_for_delivery' && data.assigned_rider_id && data.delivery_type !== 'lbc') {
         loadRiderLocation(data.assigned_rider_id);
       }
     }
@@ -116,6 +141,7 @@ export default function Track() {
           .eq('rider_id', riderId)
           .maybeSingle();
         if (updated) setRiderLoc([updated.latitude, updated.longitude]);
+        else setRiderLoc(null);
       })
       .subscribe();
   };
@@ -257,45 +283,77 @@ export default function Track() {
               </div>
             )}
 
-            {/* ── Rider live map (out_for_delivery only) ── */}
+            {/* ── Delivery tracking (out_for_delivery only) ── */}
             {order.status === 'out_for_delivery' && (
-              <div style={{ background: 'white', borderRadius: '14px', marginBottom: '16px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
-                <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid rgba(166,113,228,0.08)' }}>
-                  <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>
-                    🏍️ Rider is on the way / Papunta na ang rider
-                  </h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '4px' }}>
-                    Live location updates every few seconds.
-                  </p>
-                </div>
-                {riderLoc ? (
-                  <MapContainer
-                    center={riderLoc}
-                    zoom={15}
-                    style={{ height: '280px', width: '100%' }}
-                    scrollWheelZoom={false}
-                  >
-                    <TileLayer
-                      url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                      attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                    />
-                    <RiderMarker position={riderLoc} />
-                    {order.landmark_lat && order.landmark_lng && (
-                      <Marker
-                        position={[order.landmark_lat, order.landmark_lng]}
-                        icon={destIcon}
-                      >
-                        <Popup>Delivery destination</Popup>
-                      </Marker>
-                    )}
-                  </MapContainer>
-                ) : (
-                  <div style={{ height: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
-                    <p style={{ fontSize: '1.5rem' }}>📡</p>
-                    <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Waiting for rider to share location…</p>
+              order.delivery_type === 'lbc' ? (
+                <div style={{ background: 'white', borderRadius: '14px', padding: '28px', marginBottom: '16px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(230,126,34,0.2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                    <span style={{ fontSize: '2rem' }}>📦</span>
+                    <div>
+                      <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>Your order is on its way via LBC!</h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '3px' }}>Naipadala na ang inyong order sa pamamagitan ng LBC.</p>
+                    </div>
                   </div>
-                )}
-              </div>
+                  {order.lbc_tracking_number ? (
+                    <>
+                      <div style={{ background: 'rgba(230,126,34,0.06)', border: '1px solid rgba(230,126,34,0.2)', borderRadius: '10px', padding: '14px 18px', marginBottom: '14px' }}>
+                        <p style={{ fontSize: '0.7rem', color: '#e67e22', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px' }}>LBC Tracking Number</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', letterSpacing: '0.08em', fontFamily: 'monospace', margin: 0 }}>{order.lbc_tracking_number}</p>
+                      </div>
+                      <a
+                        href={`https://www.lbcexpress.com/track/?tracking_no=${order.lbc_tracking_number}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '11px 22px', background: '#e67e22', color: 'white', fontWeight: 700, fontSize: '0.88rem', borderRadius: '10px', textDecoration: 'none', boxShadow: '0 4px 14px rgba(230,126,34,0.3)' }}
+                      >
+                        📦 Track via LBC Express ↗
+                      </a>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--gray)', marginTop: '12px', lineHeight: 1.6 }}>
+                        You may claim your order at the nearest LBC branch using the tracking number above. / Maaari mong kunin ang inyong order sa pinakamalapit na sangay ng LBC gamit ang tracking number sa itaas.
+                      </p>
+                    </>
+                  ) : (
+                    <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Your order is being processed by LBC. The tracking number will appear here once available. / Pinoproseso ng LBC ang inyong order. Lilitaw ang tracking number kapag available na.</p>
+                  )}
+                </div>
+              ) : (
+                <div style={{ background: 'white', borderRadius: '14px', marginBottom: '16px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+                  <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid rgba(166,113,228,0.08)' }}>
+                    <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>
+                      🏍️ Rider is on the way / Papunta na ang rider
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '4px' }}>
+                      Live location updates every few seconds.
+                    </p>
+                  </div>
+                  {riderLoc ? (
+                    <MapContainer
+                      center={riderLoc}
+                      zoom={15}
+                      style={{ height: '280px', width: '100%' }}
+                      scrollWheelZoom={false}
+                    >
+                      <TileLayer
+                        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                        attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                      />
+                      <RiderMarker position={riderLoc} />
+                      {order.landmark_lat && order.landmark_lng && (
+                        <Marker
+                          position={[order.landmark_lat, order.landmark_lng]}
+                          icon={destIcon}
+                        >
+                          <Popup>Delivery destination</Popup>
+                        </Marker>
+                      )}
+                    </MapContainer>
+                  ) : (
+                    <div style={{ height: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
+                      <p style={{ fontSize: '1.5rem' }}>📡</p>
+                      <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Waiting for rider to share location…</p>
+                    </div>
+                  )}
+                </div>
+              )
             )}
 
             {/* ── Chat with us ── */}
@@ -321,6 +379,9 @@ export default function Track() {
                     senderName={order.customer_name}
                     senderType="customer"
                     senderId={null}
+                    salesId={order.assigned_sales_id}
+                    riderId={order.assigned_rider_id}
+                    referenceCode={order.reference_code}
                   />
                 </div>
               )}

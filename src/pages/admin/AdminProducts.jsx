@@ -155,8 +155,11 @@ function ProductFormModal({ product, onClose, onSaved }) {
   const [category,    setCategory]    = useState(product?.category    || '');
   const [priceRange,  setPriceRange]  = useState(product?.price_range || '');
   const [images,      setImages]      = useState(product?.images      || []);
-  const [inclusions,  setInclusions]  = useState(product?.inclusions  || []);
+  const [inclusions,  setInclusions]  = useState(
+    (product?.inclusions || []).map(i => typeof i === 'string' ? {name:i, price:0} : i)
+  );
   const [features,    setFeatures]    = useState(product?.features    || []);
+  const [warranty,    setWarranty]    = useState(product?.warranty || '');
   const [specs,       setSpecs]       = useState(() => {
     const s = product?.specs || {};
     return Object.entries(s).map(([k, v]) => ({ k, v: String(v) }));
@@ -171,7 +174,8 @@ function ProductFormModal({ product, onClose, onSaved }) {
   const [error,        setError]        = useState('');
 
   // Add-row input states
-  const [newInclusion, setNewInclusion] = useState('');
+  const [newInclusionName,  setNewInclusionName]  = useState('');
+  const [newInclusionPrice, setNewInclusionPrice] = useState('');
   const [newFeature,   setNewFeature]   = useState('');
   const [newSpecKey,   setNewSpecKey]   = useState('');
   const [newSpecVal,   setNewSpecVal]   = useState('');
@@ -203,10 +207,12 @@ function ProductFormModal({ product, onClose, onSaved }) {
   const removeImage = (idx) => setImages(prev => prev.filter((_, i) => i !== idx));
 
   const addInclusion = () => {
-    const v = newInclusion.trim();
-    if (!v) return;
-    setInclusions(prev => [...prev, v]);
-    setNewInclusion('');
+    const n = newInclusionName.trim();
+    if (!n) return;
+    const p = parseFloat(newInclusionPrice) || 0;
+    setInclusions(prev => [...prev, { name: n, price: p }]);
+    setNewInclusionName('');
+    setNewInclusionPrice('');
   };
 
   const addFeature = () => {
@@ -239,6 +245,7 @@ function ProductFormModal({ product, onClose, onSaved }) {
       images,
       inclusions,
       features,
+      warranty:            warranty.trim() || null,
       specs:               specsObj,
       is_active:           isActive,
       base_price:          parseFloat(basePrice)   || 0,
@@ -318,15 +325,26 @@ function ProductFormModal({ product, onClose, onSaved }) {
                 <input value={priceRange} onChange={e => setPriceRange(e.target.value)} placeholder="e.g. ₱12,000 – ₱15,000" style={inputStyle} />
               </Field>
             </div>
+            <Field label="Warranty">
+              <input
+                value={warranty}
+                onChange={e => setWarranty(e.target.value)}
+                placeholder="e.g. 1 Year Limited Warranty"
+                style={inputStyle}
+              />
+              <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginTop: '4px' }}>
+                Printed on every product waybill. Leave blank to use the default.
+              </p>
+            </Field>
           </Section>
 
           {/* Pricing & Commission */}
           <Section title="Pricing & Commission" subtitle="Used to auto-compute commissions at order time">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', alignItems: 'end' }}>
               <Field label="Base Price (₱)">
                 <input type="number" min="0" step="0.01" value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="0.00" style={inputStyle} />
               </Field>
-              <Field label="Sales Rep Commission A (₱)">
+              <Field label="Sales Rep Comm. A (₱)">
                 <input type="number" min="0" step="0.01" value={productComm} onChange={e => setProductComm(e.target.value)} placeholder="0.00" style={inputStyle} />
               </Field>
               <Field label="Rider Delivery Fee A (₱)">
@@ -367,11 +385,15 @@ function ProductFormModal({ product, onClose, onSaved }) {
           </Section>
 
           {/* Inclusions */}
-          <Section title="Inclusions" subtitle="Items bundled with the product">
+          <Section title="Inclusions" subtitle="Items bundled with the product (price 0 = included free)">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
               {inclusions.map((item, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(166,113,228,0.05)', borderRadius: '8px', padding: '8px 12px' }}>
-                  <span style={{ flex: 1, fontSize: '0.86rem', color: 'var(--navy)' }}>• {item}</span>
+                  <span style={{ flex: 1, fontSize: '0.86rem', color: 'var(--navy)' }}>• {item.name}</span>
+                  {item.price > 0
+                    ? <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#22a85a', background: 'rgba(34,168,90,0.1)', padding: '2px 8px', borderRadius: '10px', flexShrink: 0 }}>+₱{Number(item.price).toLocaleString()}</span>
+                    : <span style={{ fontSize: '0.75rem', color: 'var(--gray)', flexShrink: 0 }}>Free</span>
+                  }
                   <button onClick={() => setInclusions(prev => prev.filter((_, j) => j !== i))}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex' }}>
                     <X size={13} color="var(--gray)" />
@@ -380,9 +402,13 @@ function ProductFormModal({ product, onClose, onSaved }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <input value={newInclusion} onChange={e => setNewInclusion(e.target.value)}
+              <input value={newInclusionName} onChange={e => setNewInclusionName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclusion())}
-                placeholder="e.g. Mounting bracket" style={{ ...inputStyle, flex: 1 }} />
+                placeholder="e.g. Mounting bracket" style={{ ...inputStyle, flex: 2 }} />
+              <input value={newInclusionPrice} onChange={e => setNewInclusionPrice(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclusion())}
+                type="number" min="0" placeholder="Price (0=free)"
+                style={{ ...inputStyle, flex: 1 }} />
               <button onClick={addInclusion}
                 style={{ padding: '9px 14px', background: 'rgba(166,113,228,0.1)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                 <Plus size={16} color="var(--blue)" />
@@ -477,7 +503,7 @@ function Section({ title, subtitle, children }) {
 
 function Field({ label, children }) {
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--gray)', marginBottom: '5px', letterSpacing: '0.04em' }}>{label}</label>
       {children}
     </div>

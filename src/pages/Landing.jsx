@@ -60,7 +60,7 @@ export default function Landing() {
           {/* LEFT — Text */}
           <div>
             <div className="animate-fade-up delay-1" style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', background: 'rgba(166,113,228,0.12)', border: '1px solid rgba(166,113,228,0.22)', borderRadius: '20px', padding: '5px 14px', marginBottom: '24px' }}>
-              <span style={{ fontSize: '0.9rem' }}>🇵🇭</span>
+              <span style={{ fontSize: '0.9rem', color: 'white' }}>🇵🇭</span>
               <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--blue)' }}>Made in the Philippines</span>
             </div>
 

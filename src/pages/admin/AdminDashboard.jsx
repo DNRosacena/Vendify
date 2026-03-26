@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { LogOut, Package, Clock, CheckCircle, Truck, Star, XCircle,
          RefreshCw, ChevronDown, Search, User, Phone, MapPin, X,
          MessageCircle, MapPinned, Receipt, Info, Plus, Trash2, AlertTriangle,
-         Bell } from 'lucide-react';
+         Bell, Printer } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../../lib/supabase';
 import { formatDate, statusLabel } from '../../lib/utils';
 import OrderChat from '../../components/OrderChat';
+import WaybillModal from '../../components/WaybillModal';
+import BulkWaybillModal from '../../components/BulkWaybillModal';
+import ProductionReceiptModal, { BulkProductionReceiptModal } from '../../components/ProductionReceiptModal';
 import AdminProducts from './AdminProducts';
 import LogoIcon from '../../components/LogoIcon';
 
@@ -181,6 +184,12 @@ export default function AdminDashboard() {
   const [search,   setSearch]   = useState('');
   const [filter,   setFilter]   = useState('all');
   const [selected, setSelected] = useState(null);
+  const [waybillOrder, setWaybillOrder] = useState(null);
+  const [productionReceiptOrder, setProductionReceiptOrder] = useState(null);
+  const [printMode,       setPrintMode]       = useState(false);
+  const [printQueue,      setPrintQueue]      = useState(new Set());
+  const [bulkPrintOrders, setBulkPrintOrders] = useState(null);
+  const [bulkReceiptOrders, setBulkReceiptOrders] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [adminUser,setAdminUser]= useState(null);
 
@@ -192,6 +201,7 @@ export default function AdminDashboard() {
   const [salesRepOverride, setSalesRepOverride] = useState('');
   const [riderOverride,    setRiderOverride]    = useState('');
   const [savingFinancials, setSavingFinancials] = useState(false);
+  const [savingDelivery,   setSavingDelivery]   = useState(false);
 
   // Available riders (for manual assignment)
   const [availableRiders,    setAvailableRiders]    = useState([]);
@@ -199,6 +209,9 @@ export default function AdminDashboard() {
 
   // Delivery proof
   const [deliveryProof,  setDeliveryProof]  = useState(null);
+
+  // Referral info (fetched when order with referral_code is selected)
+  const [referrerInfo, setReferrerInfo] = useState(null);
 
   // Profile modal
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -230,8 +243,25 @@ export default function AdminDashboard() {
   const [usersError,     setUsersError]    = useState('');
   const [selectedUser,   setSelectedUser]  = useState(null);
 
+  // Warranties state
+  const [repairs,              setRepairs]              = useState([]);
+  const [selectedRepair,       setSelectedRepair]       = useState(null);
+  const [repairDrawerTab,      setRepairDrawerTab]      = useState('details');
+  const [repairLoading,        setRepairLoading]        = useState(false);
+  const [outOfWarrantyMsg,     setOutOfWarrantyMsg]     = useState('');
+  const [outOfWarrantyMsgEdit, setOutOfWarrantyMsgEdit] = useState('');
+  const [repairStatusFilter,   setRepairStatusFilter]   = useState('all');
+  const [repairChatMessages,   setRepairChatMessages]   = useState([]);
+  const [repairCompletion,     setRepairCompletion]     = useState(null);
+  const [repairChatInput,      setRepairChatInput]      = useState('');
+  const [savingRepairNote,     setSavingRepairNote]     = useState(false);
+  const [repairNote,           setRepairNote]           = useState('');
+  const [repairAvailRiders,    setRepairAvailRiders]    = useState([]);
+  const [assigningRepairRider, setAssigningRepairRider] = useState(false);
+  const [savingOowMsg,         setSavingOowMsg]         = useState(false);
+
   // Sales History state
-  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map'
+  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map' | 'warranties'
   const [reports,        setReports]       = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [genYear,        setGenYear]       = useState(new Date().getFullYear());
@@ -302,6 +332,93 @@ export default function AdminDashboard() {
     setLoadingUsers(false);
   };
 
+  const loadRepairs = async () => {
+    setRepairLoading(true);
+    const { data } = await supabase
+      .from('repair_tickets')
+      .select('*, assigned_rider:assigned_rider_id(full_name)')
+      .order('created_at', { ascending: false });
+    setRepairs(data || []);
+
+    const { data: setting } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'out_of_warranty_message')
+      .maybeSingle();
+    const msg = setting?.value || '';
+    setOutOfWarrantyMsg(msg);
+    setOutOfWarrantyMsgEdit(msg);
+    setRepairLoading(false);
+  };
+
+  const updateRepairStatus = async (repairId, newStatus) => {
+    await supabase.from('repair_tickets').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', repairId);
+    setRepairs(prev => prev.map(r => r.id === repairId ? { ...r, status: newStatus } : r));
+    if (selectedRepair?.id === repairId) setSelectedRepair(prev => ({ ...prev, status: newStatus }));
+  };
+
+  const loadRepairChat = async (repairId) => {
+    const { data } = await supabase.from('repair_messages').select('*').eq('repair_id', repairId).order('created_at');
+    setRepairChatMessages(data || []);
+  };
+
+  const sendRepairMessage = async () => {
+    if (!repairChatInput.trim() || !selectedRepair) return;
+    const msg = {
+      repair_id:   selectedRepair.id,
+      sender_id:   adminUser?.id || null,
+      sender_name: adminUser?.full_name || 'Admin',
+      sender_role: 'admin',
+      message:     repairChatInput.trim(),
+      created_at:  new Date().toISOString(),
+    };
+    await supabase.from('repair_messages').insert(msg);
+    setRepairChatMessages(prev => [...prev, msg]);
+    setRepairChatInput('');
+  };
+
+  const loadRepairCompletion = async (repairId) => {
+    const { data } = await supabase.from('repair_completions').select('*').eq('repair_id', repairId).maybeSingle();
+    setRepairCompletion(data || null);
+  };
+
+  const saveRepairNote = async () => {
+    if (!selectedRepair) return;
+    setSavingRepairNote(true);
+    await supabase.from('repair_tickets').update({ note: repairNote, updated_at: new Date().toISOString() }).eq('id', selectedRepair.id);
+    setRepairs(prev => prev.map(r => r.id === selectedRepair.id ? { ...r, note: repairNote } : r));
+    setSelectedRepair(prev => ({ ...prev, note: repairNote }));
+    setSavingRepairNote(false);
+  };
+
+  const loadRepairAvailRiders = async () => {
+    const { data } = await supabase.from('users').select('id, full_name, phone').eq('role', 'rider').eq('is_available', true);
+    setRepairAvailRiders(data || []);
+  };
+
+  const assignRepairRider = async (riderId, riderName) => {
+    if (!selectedRepair) return;
+    setAssigningRepairRider(true);
+    await supabase.from('repair_tickets').update({ assigned_rider_id: riderId, updated_at: new Date().toISOString() }).eq('id', selectedRepair.id);
+    setRepairs(prev => prev.map(r => r.id === selectedRepair.id ? { ...r, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } } : r));
+    setSelectedRepair(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } }));
+    setAssigningRepairRider(false);
+  };
+
+  const unassignRepairRider = async () => {
+    if (!selectedRepair) return;
+    await supabase.from('repair_tickets').update({ assigned_rider_id: null, updated_at: new Date().toISOString() }).eq('id', selectedRepair.id);
+    setRepairs(prev => prev.map(r => r.id === selectedRepair.id ? { ...r, assigned_rider_id: null, assigned_rider: null } : r));
+    setSelectedRepair(prev => ({ ...prev, assigned_rider_id: null, assigned_rider: null }));
+  };
+
+  const saveOowMessage = async () => {
+    setSavingOowMsg(true);
+    await supabase.from('app_settings').upsert({ key: 'out_of_warranty_message', value: outOfWarrantyMsgEdit }, { onConflict: 'key' });
+    setOutOfWarrantyMsg(outOfWarrantyMsgEdit);
+    setSavingOowMsg(false);
+  };
+
   const logAction = async (action, description, orderId = null, refCode = null) => {
     await supabase.from('activity_log').insert({
       actor_name:     adminUser?.full_name || 'Admin',
@@ -341,6 +458,16 @@ export default function AdminDashboard() {
       riderChannelRef.current = null;
     }
   }, [selected]);
+
+  // Fetch referrer info when selected order has a referral_code
+  useEffect(() => {
+    if (!selected?.referral_code) { setReferrerInfo(null); return; }
+    supabase.from('orders')
+      .select('customer_name, contact_number, product_name')
+      .eq('reference_code', selected.referral_code)
+      .maybeSingle()
+      .then(({ data }) => setReferrerInfo(data || null));
+  }, [selected?.referral_code]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -426,9 +553,25 @@ export default function AdminDashboard() {
       return;
     }
     setUpdating(true);
-    await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-    if (selected?.id === orderId) setSelected(prev => ({ ...prev, status: newStatus }));
+    const updatePayload = { status: newStatus, updated_at: new Date().toISOString() };
+
+    // Snapshot product pricing when order is first confirmed
+    if (newStatus === 'confirmed' && order?.product_id) {
+      const { data: product } = await supabase
+        .from('products')
+        .select('base_price, product_commission, delivery_fee')
+        .eq('id', order.product_id)
+        .maybeSingle();
+      if (product) {
+        updatePayload.product_base_price = product.base_price  || 0;
+        updatePayload.commission_a       = product.product_commission || 0;
+        updatePayload.delivery_fee_a     = product.delivery_fee || 0;
+      }
+    }
+
+    await supabase.from('orders').update(updatePayload).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updatePayload } : o));
+    if (selected?.id === orderId) setSelected(prev => ({ ...prev, ...updatePayload }));
 
     const label = statusLabel(newStatus).en;
     await notifyAdminsAndSales(order, 'Status Updated / Na-update ang Status',
@@ -657,6 +800,15 @@ export default function AdminDashboard() {
     setSavingFinancials(false);
   };
 
+  // ── LBC delivery details ──────────────────────────────────
+  const saveLbcDetails = async (orderId, fields) => {
+    setSavingDelivery(true);
+    await supabase.from('orders').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...fields } : o));
+    if (selected?.id === orderId) setSelected(prev => ({ ...prev, ...fields }));
+    setSavingDelivery(false);
+  };
+
   // ── Delete order ──────────────────────────────────────────
   const handleDeleteOrder = async (password) => {
     const email = adminEmail;
@@ -708,6 +860,16 @@ export default function AdminDashboard() {
   });
 
   const bdTotal = breakdown.reduce((s, i) => s + Number(i.amount), 0);
+
+  // ── Print-mode helpers ────────────────────────────────────
+  const togglePrintItem = (id) => setPrintQueue(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const exitPrintMode    = () => { setPrintMode(false); setPrintQueue(new Set()); };
+  const openBulkPrint    = () => setBulkPrintOrders(filtered.filter(o => printQueue.has(o.id)));
+  const openBulkReceipts = () => setBulkReceiptOrders(filtered.filter(o => printQueue.has(o.id)));
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -798,17 +960,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -820,8 +982,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats — current month only (hidden on Products/Map/Users view) */}
-        {view !== 'products' && view !== 'map' && view !== 'users' && <>
+        {/* Stats — current month only (hidden on Products/Map/Users/Warranties view) */}
+        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />
@@ -1045,20 +1207,407 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* ── Warranties view ── */}
+        {view === 'warranties' && (() => {
+          const REPAIR_STATUSES = ['pending', 'confirmed', 'out_for_repair', 'completed'];
+          const REPAIR_STATUS_COLORS = {
+            pending: '#3498DB', confirmed: '#2ECC71', out_for_repair: '#a671e4', completed: '#27AE60',
+          };
+          const REPAIR_STATUS_LABELS = {
+            pending: 'Pending', confirmed: 'Confirmed', out_for_repair: 'Out for Repair', completed: 'Completed',
+          };
+          const filteredRepairs = repairStatusFilter === 'all'
+            ? repairs
+            : repairs.filter(r => r.status === repairStatusFilter);
+
+          return (
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+              {/* Left: ticket list */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Status filter chips */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  {[{ value: 'all', label: 'All' }, ...REPAIR_STATUSES.map(s => ({ value: s, label: REPAIR_STATUS_LABELS[s] }))].map(({ value, label }) => (
+                    <button key={value} onClick={() => setRepairStatusFilter(value)}
+                      style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: repairStatusFilter === value ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: repairStatusFilter === value ? 'var(--navy)' : 'white', color: repairStatusFilter === value ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.1)', overflow: 'hidden' }}>
+                  {repairLoading ? (
+                    <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)' }}>
+                      <div style={{ width: '32px', height: '32px', border: '3px solid rgba(166,113,228,0.2)', borderTop: '3px solid var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 14px' }} />
+                      Loading tickets…
+                    </div>
+                  ) : filteredRepairs.length === 0 ? (
+                    <div style={{ padding: '60px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🔧</p>
+                      <p style={{ fontWeight: 600, color: 'var(--navy)' }}>No repair tickets found</p>
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(166,113,228,0.08)' }}>
+                            {['Reference', 'Customer', 'Product', 'Type', 'Status', 'Date', 'Actions'].map(h => (
+                              <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.70rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredRepairs.map(r => (
+                            <tr key={r.id}
+                              style={{ borderBottom: '1px solid rgba(166,113,228,0.06)', cursor: 'pointer', transition: 'background 0.1s' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'rgba(166,113,228,0.03)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                              onClick={() => {
+                                setSelectedRepair(r);
+                                setRepairDrawerTab('details');
+                                setRepairNote(r.note || '');
+                                setRepairChatMessages([]);
+                                setRepairCompletion(null);
+                              }}
+                            >
+                              <td style={{ padding: '13px 14px', fontWeight: 700, color: 'var(--navy)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.80rem' }}>{r.reference_code}</td>
+                              <td style={{ padding: '13px 14px' }}>
+                                <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '1px' }}>{r.customer_name}</p>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--gray)' }}>{r.contact_number}</p>
+                              </td>
+                              <td style={{ padding: '13px 14px', color: 'var(--navy)' }}>{r.product_name}</td>
+                              <td style={{ padding: '13px 14px' }}>
+                                {r.is_under_warranty ? (
+                                  <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#27ae60', background: 'rgba(39,174,96,0.1)', padding: '3px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>WARRANTY</span>
+                                ) : (
+                                  <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#e67e22', background: 'rgba(230,126,34,0.1)', padding: '3px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>OUT OF WARRANTY</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '13px 14px' }} onClick={e => e.stopPropagation()}>
+                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                  <select value={r.status} onChange={e => updateRepairStatus(r.id, e.target.value)}
+                                    style={{ appearance: 'none', padding: '5px 26px 5px 10px', borderRadius: '20px', border: `1px solid ${REPAIR_STATUS_COLORS[r.status]}44`, background: `${REPAIR_STATUS_COLORS[r.status]}12`, color: REPAIR_STATUS_COLORS[r.status], fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', outline: 'none' }}>
+                                    {REPAIR_STATUSES.map(s => <option key={s} value={s}>{REPAIR_STATUS_LABELS[s]}</option>)}
+                                  </select>
+                                  <ChevronDown size={11} color={REPAIR_STATUS_COLORS[r.status]} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                                </div>
+                              </td>
+                              <td style={{ padding: '13px 14px', color: 'var(--gray)', whiteSpace: 'nowrap', fontSize: '0.80rem' }}>
+                                {new Date(r.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}
+                              </td>
+                              <td style={{ padding: '13px 14px' }} onClick={e => e.stopPropagation()}>
+                                <button onClick={() => { setSelectedRepair(r); setRepairDrawerTab('details'); setRepairNote(r.note || ''); setRepairChatMessages([]); setRepairCompletion(null); }}
+                                  style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Out-of-warranty message config */}
+                <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', padding: '22px 24px', marginTop: '20px' }}>
+                  <p style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '4px' }}>Out-of-Warranty Customer Message</p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--gray)', marginBottom: '14px' }}>This message is shown to customers whose product warranty has expired</p>
+                  <textarea
+                    value={outOfWarrantyMsgEdit}
+                    onChange={e => setOutOfWarrantyMsgEdit(e.target.value)}
+                    rows={4}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', fontSize: '0.86rem', fontFamily: 'Inter, sans-serif', resize: 'vertical', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box', lineHeight: 1.6 }}
+                    onFocus={e => e.target.style.borderColor = 'var(--blue)'}
+                    onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.2)'}
+                  />
+                  <button onClick={saveOowMessage} disabled={savingOowMsg}
+                    style={{ marginTop: '10px', padding: '9px 20px', background: savingOowMsg ? 'rgba(166,113,228,0.1)' : 'linear-gradient(135deg,var(--blue),var(--red))', color: savingOowMsg ? 'var(--gray)' : 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: savingOowMsg ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                    {savingOowMsg ? 'Saving…' : 'Save Message'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Right: detail drawer (inline panel) */}
+              {selectedRepair && (() => {
+                const rep = selectedRepair;
+                const REPAIR_STATUSES2 = ['pending', 'confirmed', 'out_for_repair', 'completed'];
+                const REPAIR_STATUS_COLORS2 = { pending: '#3498DB', confirmed: '#2ECC71', out_for_repair: '#a671e4', completed: '#27AE60' };
+                const REPAIR_STATUS_LABELS2 = { pending: 'Pending', confirmed: 'Confirmed', out_for_repair: 'Out for Repair', completed: 'Completed' };
+                const SERVICE_LABELS = { warranty: 'Warranty', home_service: 'Home Service', walk_in: 'Walk-In' };
+
+                return (
+                  <div style={{ width: '440px', flexShrink: 0, background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 200px)', position: 'sticky', top: '80px' }}>
+                    {/* Drawer header */}
+                    <div style={{ padding: '18px 20px', borderBottom: '1px solid rgba(166,113,228,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                      <div>
+                        <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--navy)', fontFamily: 'monospace' }}>{rep.reference_code}</p>
+                        <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{new Date(rep.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}</p>
+                      </div>
+                      <button onClick={() => setSelectedRepair(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray)', display: 'flex', padding: '4px' }}><X size={18} /></button>
+                    </div>
+
+                    {/* Tab bar */}
+                    <div style={{ display: 'flex', borderBottom: '1px solid rgba(166,113,228,0.1)', flexShrink: 0 }}>
+                      {[{ id: 'details', label: 'Details', icon: Info }, { id: 'chat', label: 'Chat', icon: MessageCircle }, { id: 'rider', label: 'Rider', icon: MapPinned }].map(({ id, label, icon: Icon }) => (
+                        <button key={id}
+                          onClick={() => {
+                            setRepairDrawerTab(id);
+                            if (id === 'chat') loadRepairChat(rep.id);
+                            if (id === 'rider') { loadRepairAvailRiders(); loadRepairCompletion(rep.id); }
+                          }}
+                          style={{ flex: 1, padding: '11px 4px', border: 'none', background: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', borderBottom: repairDrawerTab === id ? '2px solid var(--blue)' : '2px solid transparent', fontFamily: 'Inter, sans-serif', transition: 'all 0.15s' }}>
+                          <Icon size={15} color={repairDrawerTab === id ? 'var(--blue)' : 'var(--gray)'} />
+                          <span style={{ fontSize: '0.68rem', fontWeight: repairDrawerTab === id ? 700 : 500, color: repairDrawerTab === id ? 'var(--blue)' : 'var(--gray)' }}>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Tab content */}
+                    <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+
+                      {/* Details tab */}
+                      {repairDrawerTab === 'details' && (
+                        <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          {/* Status buttons */}
+                          <div style={{ background: 'rgba(166,113,228,0.05)', border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', padding: '14px' }}>
+                            <p style={{ fontSize: '0.70rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>Update Status</p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                              {REPAIR_STATUSES2.map(s => (
+                                <button key={s} onClick={() => updateRepairStatus(rep.id, s)}
+                                  style={{ padding: '6px 12px', borderRadius: '20px', border: `1px solid ${s === rep.status ? REPAIR_STATUS_COLORS2[s] : 'rgba(166,113,228,0.15)'}`, background: s === rep.status ? `${REPAIR_STATUS_COLORS2[s]}15` : 'transparent', color: s === rep.status ? REPAIR_STATUS_COLORS2[s] : 'var(--gray)', fontSize: '0.75rem', fontWeight: s === rep.status ? 700 : 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                  {REPAIR_STATUS_LABELS2[s]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Customer info */}
+                          <InfoSection title="Customer Info" rows={[
+                            { Icon: User,    label: 'Name',    value: rep.customer_name },
+                            { Icon: Phone,   label: 'Contact', value: rep.contact_number },
+                            { Icon: MapPin,  label: 'Address', value: rep.address },
+                          ]} />
+
+                          {/* Product / Order */}
+                          <InfoSection title="Product & Order" rows={[
+                            { Icon: Package, label: 'Product', value: rep.product_name },
+                            { Icon: Info,    label: 'Original Order', value: rep.original_reference_code || '—' },
+                          ]} />
+
+                          {/* Issue */}
+                          <div>
+                            <p style={sectionLabelStyle}>Issue Description</p>
+                            <div style={{ background: 'rgba(52,152,219,0.05)', borderLeft: '3px solid var(--blue)', borderRadius: '0 8px 8px 0', padding: '12px 14px', marginTop: '8px' }}>
+                              <p style={{ fontSize: '0.86rem', color: 'var(--navy)', lineHeight: 1.6 }}>{rep.issue_description}</p>
+                            </div>
+                          </div>
+
+                          {/* Badges */}
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: rep.is_under_warranty ? '#27ae60' : '#e67e22', background: rep.is_under_warranty ? 'rgba(39,174,96,0.1)' : 'rgba(230,126,34,0.1)', padding: '4px 10px', borderRadius: '12px' }}>
+                              {rep.is_under_warranty ? '🛡️ Under Warranty' : '⚠️ Out of Warranty'}
+                            </span>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--blue)', background: 'rgba(166,113,228,0.1)', padding: '4px 10px', borderRadius: '12px' }}>
+                              {SERVICE_LABELS[rep.service_type] || rep.service_type}
+                            </span>
+                          </div>
+
+                          {/* Note */}
+                          <div>
+                            <p style={{ ...sectionLabelStyle, marginBottom: '8px' }}>Admin Note</p>
+                            <textarea
+                              value={repairNote}
+                              onChange={e => setRepairNote(e.target.value)}
+                              rows={3}
+                              placeholder="Add a note…"
+                              style={{ width: '100%', padding: '9px 12px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif', resize: 'vertical', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box' }}
+                              onFocus={e => e.target.style.borderColor = 'var(--blue)'}
+                              onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.2)'}
+                            />
+                            <button onClick={saveRepairNote} disabled={savingRepairNote}
+                              style={{ marginTop: '8px', padding: '8px 18px', background: savingRepairNote ? 'rgba(166,113,228,0.1)' : 'linear-gradient(135deg,var(--blue),var(--red))', color: savingRepairNote ? 'var(--gray)' : 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.82rem', cursor: savingRepairNote ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              {savingRepairNote ? 'Saving…' : 'Save Note'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Chat tab */}
+                      {repairDrawerTab === 'chat' && (
+                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: '400px' }}>
+                          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {repairChatMessages.length === 0 ? (
+                              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontSize: '0.85rem' }}>No messages yet</div>
+                            ) : repairChatMessages.map((msg, i) => (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.sender_role === 'admin' ? 'flex-end' : 'flex-start' }}>
+                                <div style={{ maxWidth: '80%', padding: '10px 14px', borderRadius: '12px', background: msg.sender_role === 'admin' ? 'linear-gradient(135deg,var(--blue),var(--red))' : 'rgba(166,113,228,0.1)', color: msg.sender_role === 'admin' ? 'white' : 'var(--navy)' }}>
+                                  <p style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '4px', opacity: 0.8 }}>{msg.sender_name}</p>
+                                  <p style={{ fontSize: '0.86rem', lineHeight: 1.5 }}>{msg.message}</p>
+                                </div>
+                                <p style={{ fontSize: '0.68rem', color: 'var(--gray)', marginTop: '3px', padding: '0 4px' }}>
+                                  {new Date(msg.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(166,113,228,0.1)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+                            <input
+                              value={repairChatInput}
+                              onChange={e => setRepairChatInput(e.target.value)}
+                              placeholder="Type a message…"
+                              onKeyDown={e => e.key === 'Enter' && sendRepairMessage()}
+                              style={{ flex: 1, padding: '9px 12px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif', outline: 'none', color: 'var(--navy)' }}
+                            />
+                            <button onClick={sendRepairMessage} disabled={!repairChatInput.trim()}
+                              style={{ padding: '9px 16px', background: repairChatInput.trim() ? 'linear-gradient(135deg,var(--blue),var(--red))' : 'rgba(166,113,228,0.15)', color: repairChatInput.trim() ? 'white' : 'rgba(166,113,228,0.4)', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.82rem', cursor: repairChatInput.trim() ? 'pointer' : 'not-allowed', fontFamily: 'Inter, sans-serif' }}>
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Rider tab */}
+                      {repairDrawerTab === 'rider' && (
+                        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          {!rep.assigned_rider_id ? (
+                            <div>
+                              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>Assign a Rider</p>
+                              {repairAvailRiders.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                                  <p style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🏍️</p>
+                                  <p style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: '4px' }}>No available riders</p>
+                                  <p style={{ fontSize: '0.80rem', color: 'var(--gray)' }}>Riders appear here when they toggle Available in the app</p>
+                                </div>
+                              ) : repairAvailRiders.map(r => (
+                                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(166,113,228,0.15)', marginBottom: '8px' }}>
+                                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#a671e4,#fe78e3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>🏍️</div>
+                                  <div style={{ flex: 1 }}>
+                                    <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.86rem' }}>{r.full_name}</p>
+                                    {r.phone && <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{r.phone}</p>}
+                                  </div>
+                                  <button onClick={() => assignRepairRider(r.id, r.full_name)} disabled={assigningRepairRider}
+                                    style={{ padding: '6px 14px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: assigningRepairRider ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: assigningRepairRider ? 0.6 : 1 }}>
+                                    {assigningRepairRider ? '…' : 'Assign'}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div>
+                              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>Assigned Rider</p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderRadius: '10px', border: '1px solid rgba(39,174,96,0.2)', background: 'rgba(39,174,96,0.05)', marginBottom: '12px' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#a671e4,#fe78e3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏍️</div>
+                                <p style={{ flex: 1, fontWeight: 700, color: 'var(--navy)' }}>{rep.assigned_rider?.full_name || 'Rider'}</p>
+                                <button onClick={unassignRepairRider}
+                                  style={{ padding: '6px 14px', background: 'rgba(231,76,60,0.08)', color: '#e74c3c', border: '1px solid rgba(231,76,60,0.2)', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                  Unassign
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Completion proof */}
+                          {repairCompletion && (
+                            <div>
+                              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>Completion Proof</p>
+                              <div style={{ background: 'rgba(39,174,96,0.05)', border: '1px solid rgba(39,174,96,0.2)', borderRadius: '10px', padding: '14px' }}>
+                                {repairCompletion.notes && (
+                                  <p style={{ fontSize: '0.86rem', color: 'var(--navy)', marginBottom: '12px', lineHeight: 1.5 }}>{repairCompletion.notes}</p>
+                                )}
+                                {repairCompletion.photo_urls?.length > 0 && (
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    {repairCompletion.photo_urls.map((url, i) => (
+                                      <a key={i} href={url} target="_blank" rel="noreferrer">
+                                        <img src={url} alt={`Proof ${i + 1}`} style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '1px solid rgba(39,174,96,0.2)', cursor: 'pointer' }} />
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })()}
+
         {/* Table — orders view only */}
         {view === 'orders' && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.1)', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-              <Search size={14} color="var(--gray)" style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                placeholder="Search orders, customers, products…"
-                value={search} onChange={e => setSearch(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px 9px 34px', border: '1px solid rgba(166,113,228,0.15)', borderRadius: '8px', fontSize: '0.85rem', outline: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--navy)' }}
-                onFocus={e => e.target.style.borderColor = 'var(--blue)'}
-                onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.15)'}
-              />
-            </div>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+
+            {/* Search — hidden in print-selection mode */}
+            {!printMode && (
+              <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                <Search size={14} color="var(--gray)" style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  placeholder="Search orders, customers, products…"
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px 9px 34px', border: '1px solid rgba(166,113,228,0.15)', borderRadius: '8px', fontSize: '0.85rem', outline: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--navy)' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--blue)'}
+                  onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.15)'}
+                />
+              </div>
+            )}
+
+            {/* Print-selection mode controls */}
+            {printMode && (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', flexShrink: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && printQueue.size === filtered.length}
+                    onChange={e => e.target.checked
+                      ? setPrintQueue(new Set(filtered.map(o => o.id)))
+                      : setPrintQueue(new Set())}
+                    style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'var(--blue)' }}
+                  />
+                  <span style={{ fontSize: '0.82rem', color: 'var(--gray)', fontWeight: 600 }}>Select all</span>
+                </label>
+                <span style={{ fontSize: '0.8rem', color: 'var(--gray)', flex: 1 }}>
+                  {printQueue.size} of {filtered.length} selected
+                </span>
+                <button
+                  onClick={exitPrintMode}
+                  style={{ padding: '7px 14px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', background: 'none', color: 'var(--gray)', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={openBulkPrint}
+                  disabled={printQueue.size === 0}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 16px', border: 'none', borderRadius: '8px', background: printQueue.size === 0 ? 'rgba(166,113,228,0.15)' : 'linear-gradient(135deg,#a671e4,#fe78e3)', color: printQueue.size === 0 ? 'rgba(166,113,228,0.4)' : 'white', fontWeight: 700, fontSize: '0.8rem', cursor: printQueue.size === 0 ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}
+                >
+                  <Printer size={13} />
+                  Print {printQueue.size || ''} Waybill{printQueue.size !== 1 ? 's' : ''}
+                </button>
+                <button
+                  onClick={openBulkReceipts}
+                  disabled={printQueue.size === 0}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 16px', border: 'none', borderRadius: '8px', background: printQueue.size === 0 ? 'rgba(34,201,122,0.15)' : 'linear-gradient(135deg,#22c97a,#06d6a0)', color: printQueue.size === 0 ? 'rgba(34,201,122,0.4)' : 'white', fontWeight: 700, fontSize: '0.8rem', cursor: printQueue.size === 0 ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}
+                >
+                  <Printer size={13} />
+                  Print {printQueue.size || ''} Receipt{printQueue.size !== 1 ? 's' : ''}
+                </button>
+              </>
+            )}
+
+            {/* Print Waybills entry button */}
+            {!printMode && (
+              <button
+                onClick={() => setPrintMode(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', background: 'rgba(166,113,228,0.05)', color: 'var(--blue)', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}
+              >
+                <Printer size={13} />
+                Print Waybills
+              </button>
+            )}
+
             <p style={{ fontSize: '0.8rem', color: 'var(--gray)', flexShrink: 0 }}>{filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>
           </div>
 
@@ -1077,6 +1626,7 @@ export default function AdminDashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(166,113,228,0.08)' }}>
+                    {printMode && <th style={{ width: '40px', padding: '12px 6px 12px 16px' }} />}
                     {['Reference', 'Customer', 'Product', 'Date', 'Status', 'Actions'].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.70rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
@@ -1085,13 +1635,24 @@ export default function AdminDashboard() {
                 <tbody>
                   {filtered.map(order => {
                     const Icon = STATUS_ICONS[order.status] || Package;
+                    const inQueue = printQueue.has(order.id);
                     return (
                       <tr key={order.id}
-                        style={{ borderBottom: '1px solid rgba(166,113,228,0.06)', cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(166,113,228,0.03)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        onClick={() => setSelected(order)}
+                        style={{ borderBottom: '1px solid rgba(166,113,228,0.06)', cursor: 'pointer', background: inQueue ? 'rgba(166,113,228,0.07)' : 'transparent', transition: 'background 0.1s' }}
+                        onMouseEnter={e => { if (!inQueue) e.currentTarget.style.background = 'rgba(166,113,228,0.03)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = inQueue ? 'rgba(166,113,228,0.07)' : 'transparent'; }}
+                        onClick={() => printMode ? togglePrintItem(order.id) : setSelected(order)}
                       >
+                        {printMode && (
+                          <td style={{ padding: '14px 6px 14px 16px' }} onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={inQueue}
+                              onChange={() => togglePrintItem(order.id)}
+                              style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'var(--blue)', display: 'block' }}
+                            />
+                          </td>
+                        )}
                         <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--navy)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.82rem' }}>{order.reference_code}</td>
                         <td style={{ padding: '14px 16px' }}>
                           <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '1px' }}>{order.customer_name}</p>
@@ -1153,7 +1714,7 @@ export default function AdminDashboard() {
 
             {/* Tab bar */}
             <div style={{ display: 'flex', borderBottom: '1px solid rgba(166,113,228,0.1)', flexShrink: 0 }}>
-              {DRAWER_TABS.map(({ id, label, Icon }) => (
+              {DRAWER_TABS.filter(tab => !(tab.id === 'rider' && (selected?.delivery_type || 'rider') === 'lbc')).map(({ id, label, Icon }) => (
                 <button key={id} onClick={() => { setDrawerTab(id); if (id === 'rider') loadAvailableRiders(); }}
                   style={{ flex: 1, padding: '12px 4px', border: 'none', background: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', borderBottom: drawerTab === id ? '2px solid var(--blue)' : '2px solid transparent', fontFamily: 'Inter, sans-serif', transition: 'all 0.15s' }}>
                   <Icon size={16} color={drawerTab === id ? 'var(--blue)' : 'var(--gray)'} />
@@ -1182,6 +1743,42 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
+                  {/* Print Production Receipt — confirmed / in_production */}
+                  {['confirmed', 'in_production'].includes(selected.status) && (
+                    <button
+                      onClick={() => setProductionReceiptOrder(selected)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+                        width: '100%', padding: '10px',
+                        background: 'linear-gradient(135deg,#22c97a,#06d6a0)',
+                        border: 'none', borderRadius: '9px',
+                        color: 'white', fontWeight: 700, fontSize: '0.86rem',
+                        cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                      }}
+                    >
+                      <Printer size={15} />
+                      Print Production Receipt
+                    </button>
+                  )}
+
+                  {/* Print Waybill — available from in_production onwards */}
+                  {['in_production', 'out_for_delivery', 'delivered'].includes(selected.status) && (
+                    <button
+                      onClick={() => setWaybillOrder(selected)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+                        width: '100%', padding: '10px',
+                        background: 'linear-gradient(135deg,#a671e4,#fe78e3)',
+                        border: 'none', borderRadius: '9px',
+                        color: 'white', fontWeight: 700, fontSize: '0.86rem',
+                        cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                      }}
+                    >
+                      <Printer size={15} />
+                      Print Waybill
+                    </button>
+                  )}
+
                   {/* Customer info */}
                   <InfoSection title="Customer Info" rows={[
                     { Icon: User,   label: 'Name',    value: selected.customer_name },
@@ -1189,6 +1786,71 @@ export default function AdminDashboard() {
                     { Icon: MapPin, label: 'Address', value: selected.address },
                     { Icon: MapPin, label: 'Landmark',value: selected.landmark || '—' },
                   ]} />
+
+                  {/* ── Delivery Method ── */}
+                  <div style={{ background: 'rgba(166,113,228,0.04)', borderRadius: '12px', padding: '16px', border: '1px solid rgba(166,113,228,0.12)', marginBottom: '16px' }}>
+                    <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>Delivery Method</p>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: (selected?.delivery_type || 'rider') === 'lbc' ? '14px' : '0' }}>
+                      {[{ val: 'rider', label: '🏍️ Rider', color: 'var(--blue)' }, { val: 'lbc', label: '📦 LBC', color: '#e67e22' }].map(({ val, label, color }) => {
+                        const active = (selected?.delivery_type || 'rider') === val;
+                        return (
+                          <button key={val} disabled={savingDelivery}
+                            onClick={() => saveLbcDetails(selected.id, { delivery_type: val })}
+                            style={{ flex: 1, padding: '9px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer', borderRadius: '8px', border: `1.5px solid ${active ? color : 'rgba(166,113,228,0.15)'}`, background: active ? `${color}18` : 'transparent', color: active ? color : 'var(--gray)', transition: 'all 0.15s', fontFamily: 'Inter, sans-serif' }}
+                          >{label}</button>
+                        );
+                      })}
+                    </div>
+                    {(selected?.delivery_type || 'rider') === 'lbc' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div>
+                          <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>LBC Tracking Number</p>
+                          <input
+                            className="input-field"
+                            style={{ fontSize: '0.85rem', letterSpacing: '0.05em' }}
+                            placeholder="Enter LBC tracking number"
+                            defaultValue={selected?.lbc_tracking_number || ''}
+                            key={`track-${selected?.id}`}
+                            onBlur={e => { if (e.target.value !== (selected?.lbc_tracking_number || '')) saveLbcDetails(selected.id, { lbc_tracking_number: e.target.value || null }); }}
+                          />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>LBC Shipping Fee (₱)</p>
+                          <input
+                            className="input-field"
+                            style={{ fontSize: '0.85rem' }}
+                            type="number" min="0" step="0.01"
+                            placeholder="0.00"
+                            defaultValue={selected?.lbc_shipping_fee || ''}
+                            key={`fee-${selected?.id}`}
+                            onBlur={e => { const v = parseFloat(e.target.value) || 0; if (v !== (selected?.lbc_shipping_fee || 0)) saveLbcDetails(selected.id, { lbc_shipping_fee: v }); }}
+                          />
+                        </div>
+                        {selected?.assigned_sales_id && (
+                          <div>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '6px', fontWeight: 600 }}>LBC Fee Paid By</p>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              {[{ val: 'customer', label: 'Customer' }, { val: 'sales_rep', label: 'Sales Rep' }].map(({ val, label }) => {
+                                const active = (selected?.lbc_fee_paid_by || 'customer') === val;
+                                return (
+                                  <button key={val} disabled={savingDelivery}
+                                    onClick={() => saveLbcDetails(selected.id, { lbc_fee_paid_by: val })}
+                                    style={{ flex: 1, padding: '8px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', borderRadius: '8px', border: `1.5px solid ${active ? 'var(--blue)' : 'rgba(166,113,228,0.15)'}`, background: active ? 'rgba(166,113,228,0.12)' : 'transparent', color: active ? 'var(--blue)' : 'var(--gray)', fontFamily: 'Inter, sans-serif' }}
+                                  >{label}</button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {selected?.lbc_tracking_number && (
+                          <a href={`https://www.lbcexpress.com/track/?tracking_no=${selected.lbc_tracking_number}`} target="_blank" rel="noopener noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#e67e22', fontWeight: 600, textDecoration: 'none' }}>
+                            📦 View on LBC Express ↗
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Product */}
                   <InfoSection title="Product" rows={[
@@ -1205,11 +1867,26 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
+                  {/* Referral code display */}
+                  {selected?.referral_code && (
+                    <div style={{ background: 'rgba(39,174,96,0.06)', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(39,174,96,0.2)', marginBottom: '14px' }}>
+                      <p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#27ae60', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px' }}>🎁 Referral Code Used</p>
+                      <p style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--navy)', letterSpacing: '0.06em', fontFamily: 'monospace', marginBottom: '4px' }}>{selected.referral_code}</p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--gray)', lineHeight: 1.5 }}>Contact the owner of this reference code — they are eligible for a ₱1,000 referral reward.</p>
+                    </div>
+                  )}
+
                   {/* Assignment */}
-                  <InfoSection title="Assignment" rows={[
-                    { Icon: User, label: 'Sales Rep', value: selected.assigned_sales?.full_name || 'Set by customer' },
-                    { Icon: Truck,label: 'Rider',     value: selected.assigned_rider?.full_name || 'Unassigned' },
-                  ]} />
+                  {(selected?.delivery_type || 'rider') !== 'lbc' ? (
+                    <InfoSection title="Assignment" rows={[
+                      { Icon: User, label: 'Sales Rep', value: selected.assigned_sales?.full_name || 'Set by customer' },
+                      { Icon: Truck,label: 'Rider',     value: selected.assigned_rider?.full_name || 'Unassigned' },
+                    ]} />
+                  ) : (
+                    <InfoSection title="Assignment" rows={[
+                      { Icon: User, label: 'Sales Rep', value: selected.assigned_sales?.full_name || 'Set by customer' },
+                    ]} />
+                  )}
 
                   {/* Delivery Proof */}
                   {deliveryProof && (
@@ -1320,6 +1997,7 @@ export default function AdminDashboard() {
               {/* ── Financials ── */}
               {drawerTab === 'financials' && (() => {
                 const o = selected;
+                const isLbc = (o.delivery_type || 'rider') === 'lbc';
                 const effectiveAmount = o.amount_received ?? deliveryProof?.amount_received ?? null;
                 const commA     = o.commission_a       || 0;
                 const commB     = effectiveAmount != null ? (effectiveAmount - (o.product_base_price || 0)) : 0;
@@ -1327,9 +2005,18 @@ export default function AdminDashboard() {
                 const feeB      = o.delivery_area === 'outside_ncr' ? 700 : 500;
                 const riderBase = feeA + feeB;
                 const salesBase = commA + commB;
-                const salesComp = o.delivery_fee_paid_by === 'employee' ? salesBase - riderBase : salesBase;
+                const lbcFee    = o.lbc_shipping_fee || 0;
+                const lbcPaidBy = o.lbc_fee_paid_by || 'customer';
+
+                // LBC: sales rep absorbs the lbc fee if lbc_fee_paid_by === 'sales_rep'
+                const salesCompLbc  = lbcPaidBy === 'sales_rep' ? salesBase - lbcFee : salesBase;
+                const salesComp     = isLbc
+                  ? salesCompLbc
+                  : (o.delivery_fee_paid_by === 'employee' ? salesBase - riderBase : salesBase);
                 const salesFinal = o.sales_rep_commission_override ?? salesComp;
-                const riderFinal = o.rider_commission_override     ?? riderBase;
+                const riderFinal = isLbc ? 0 : (o.rider_commission_override ?? riderBase);
+                // For LBC where customer pays fee, fee doesn't affect profit (customer shoulders it externally)
+                // For LBC where sales_rep pays, it's already deducted from salesFinal
                 const profit     = (effectiveAmount || 0) - salesFinal - riderFinal;
 
                 const commRow = (label, value, highlight) => (
@@ -1346,18 +2033,27 @@ export default function AdminDashboard() {
                   {effectiveAmount != null && (
                     <div style={{ background: 'rgba(166,113,228,0.05)', border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                       {commRow('Amount Received', effectiveAmount)}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid rgba(166,113,228,0.07)' }}>
-                        <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Paid By</span>
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: o.delivery_fee_paid_by === 'employee' ? '#E67E22' : 'var(--navy)' }}>
-                          {o.delivery_fee_paid_by === 'employee' ? 'Employee' : 'Customer'}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px' }}>
-                        <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Area</span>
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>
-                          {o.delivery_area === 'outside_ncr' ? 'Outside NCR  ₱700' : 'NCR  ₱500'}
-                        </span>
-                      </div>
+                      {isLbc ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px' }}>
+                          <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Method</span>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e67e22' }}>📦 LBC Express</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid rgba(166,113,228,0.07)' }}>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Paid By</span>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: o.delivery_fee_paid_by === 'employee' ? '#E67E22' : 'var(--navy)' }}>
+                              {o.delivery_fee_paid_by === 'employee' ? 'Employee' : 'Customer'}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px' }}>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Area</span>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>
+                              {o.delivery_area === 'outside_ncr' ? 'Outside NCR  ₱700' : 'NCR  ₱500'}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1372,7 +2068,8 @@ export default function AdminDashboard() {
                     <div style={{ border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                       {commRow('A  (Product commission)', commA)}
                       {commRow('B  (Overtop tip)', commB)}
-                      {o.delivery_fee_paid_by === 'employee' && commRow('− Rider fee (employee shoulders)', -riderBase)}
+                      {!isLbc && o.delivery_fee_paid_by === 'employee' && commRow('− Rider fee (employee shoulders)', -riderBase)}
+                      {isLbc && lbcPaidBy === 'sales_rep' && commRow('− LBC shipping fee (sales rep shoulders)', -lbcFee)}
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', background: 'rgba(166,113,228,0.06)', borderTop: '2px solid rgba(166,113,228,0.12)' }}>
                         <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>{o.sales_rep_commission_override != null ? 'Final (override)' : 'Total'}</span>
                         <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--blue)' }}>₱{salesFinal.toFixed(2)}</span>
@@ -1380,23 +2077,35 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  {/* Rider commission */}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <p style={sectionLabelStyle}>Rider Commission</p>
-                      {o.rider_commission_override != null && (
-                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--blue)', background: 'rgba(166,113,228,0.12)', padding: '2px 7px', borderRadius: '10px', letterSpacing: '0.05em' }}>OVERRIDE</span>
-                      )}
+                  {/* Rider commission / LBC Shipping Fee */}
+                  {isLbc ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', border: '1px solid rgba(230,126,34,0.15)', borderRadius: '10px', background: 'rgba(230,126,34,0.04)' }}>
+                      <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>LBC Shipping Fee</span>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e67e22' }}>
+                        ₱{lbcFee.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                        <span style={{ fontSize: '0.72rem', color: 'var(--gray)', marginLeft: '6px' }}>
+                          ({lbcPaidBy === 'customer' ? 'Paid by customer' : 'Deducted from sales rep'})
+                        </span>
+                      </span>
                     </div>
-                    <div style={{ border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
-                      {commRow('A  (Product delivery fee)', feeA)}
-                      {commRow('B  (Area fee)', feeB)}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', background: 'rgba(166,113,228,0.06)', borderTop: '2px solid rgba(166,113,228,0.12)' }}>
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>{o.rider_commission_override != null ? 'Final (override)' : 'Total'}</span>
-                        <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--blue)' }}>₱{riderFinal.toFixed(2)}</span>
+                  ) : (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                        <p style={sectionLabelStyle}>Rider Commission</p>
+                        {o.rider_commission_override != null && (
+                          <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--blue)', background: 'rgba(166,113,228,0.12)', padding: '2px 7px', borderRadius: '10px', letterSpacing: '0.05em' }}>OVERRIDE</span>
+                        )}
+                      </div>
+                      <div style={{ border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
+                        {commRow('A  (Product delivery fee)', feeA)}
+                        {commRow('B  (Area fee)', feeB)}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', background: 'rgba(166,113,228,0.06)', borderTop: '2px solid rgba(166,113,228,0.12)' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>{o.rider_commission_override != null ? 'Final (override)' : 'Total'}</span>
+                          <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--blue)' }}>₱{riderFinal.toFixed(2)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Profit */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'rgba(166,113,228,0.07)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '10px' }}>
@@ -1489,6 +2198,32 @@ export default function AdminDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Individual waybill modal */}
+      {waybillOrder && (
+        <WaybillModal order={waybillOrder} onClose={() => setWaybillOrder(null)} />
+      )}
+
+      {/* Bulk waybill modal */}
+      {bulkPrintOrders && (
+        <BulkWaybillModal
+          orders={bulkPrintOrders}
+          onClose={() => { setBulkPrintOrders(null); exitPrintMode(); }}
+        />
+      )}
+
+      {/* Individual production receipt modal */}
+      {productionReceiptOrder && (
+        <ProductionReceiptModal order={productionReceiptOrder} onClose={() => setProductionReceiptOrder(null)} />
+      )}
+
+      {/* Bulk production receipt modal */}
+      {bulkReceiptOrders && (
+        <BulkProductionReceiptModal
+          orders={bulkReceiptOrders}
+          onClose={() => { setBulkReceiptOrders(null); exitPrintMode(); }}
+        />
       )}
 
       {/* Delete confirmation modal */}

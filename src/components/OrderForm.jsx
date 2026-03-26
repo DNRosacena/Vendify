@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { User, Phone, Package, FileText, ChevronDown, Loader, Users } from 'lucide-react';
+import { User, Phone, Package, FileText, ChevronDown, Loader, Users, Gift } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { generateReferenceCode } from '../lib/utils';
 import LandmarkSearch from './LandmarkSearch';
@@ -24,15 +24,17 @@ export default function OrderForm() {
     product_id:      preSelect,
     product_name:    preName,
     note:            '',
+    referral_code:   '',
   });
   const [hasSalesRep, setHasSalesRep] = useState(null); // null = not answered yet
+  const [hasReferral, setHasReferral] = useState(null); // null = not answered yet
   const [errors,     setErrors]     = useState({});
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     supabase.from('products').select('*').eq('is_active', true)
       .then(({ data }) => setProducts(data || []));
-    supabase.from('users').select('id, full_name').eq('is_active', true)
+    supabase.from('users').select('id, full_name').eq('role', 'sales').eq('is_active', true)
       .order('full_name')
       .then(({ data }) => setSalesReps(data || []));
   }, []);
@@ -69,6 +71,7 @@ export default function OrderForm() {
       product_id:        form.product_id,
       product_name:      selectedProduct?.name || form.product_name,
       note:              form.note.trim(),
+      referral_code:     (hasReferral && form.referral_code.trim()) ? form.referral_code.trim() : null,
       status:            'pending',
     });
 
@@ -260,6 +263,45 @@ export default function OrderForm() {
             />
           </div>
         </div>
+
+        {/* Referral Code */}
+        <div>
+          <label className="label">Do you have a referral code? / Mayroon kang referral code?</label>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+            {[{ val: true, label: 'Yes / Oo' }, { val: false, label: 'No / Hindi' }].map(({ val, label }) => (
+              <button key={String(val)} type="button"
+                onClick={() => { setHasReferral(val); if (!val) field('referral_code', ''); }}
+                style={{
+                  flex: 1, padding: '10px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer',
+                  border: `1.5px solid ${hasReferral === val ? 'var(--blue)' : 'rgba(166,113,228,0.2)'}`,
+                  borderRadius: '8px',
+                  background: hasReferral === val ? 'var(--navy)' : 'transparent',
+                  color: hasReferral === val ? 'white' : 'var(--navy)',
+                  transition: 'all 0.15s',
+                }}
+              >{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {hasReferral && (
+          <div>
+            <label className="label">Referral Code / Referral Code</label>
+            <div style={{ position: 'relative' }}>
+              <Gift size={16} color="var(--gray)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                className="input-field"
+                style={{ paddingLeft: '40px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+                placeholder="e.g. CVS-7272-RIJZ"
+                value={form.referral_code}
+                onChange={e => field('referral_code', e.target.value.toUpperCase())}
+              />
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--blue)', marginTop: '6px', lineHeight: 1.5 }}>
+              ℹ️ The company will contact the referral code owner to inform them of their ₱1,000 referral reward. / Makikipag-ugnayan ang kumpanya sa may-ari ng referral code tungkol sa kanilang ₱1,000 na gantimpala.
+            </p>
+          </div>
+        )}
 
         {/* Submit */}
         <button

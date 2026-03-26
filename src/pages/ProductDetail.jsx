@@ -61,9 +61,10 @@ export default function ProductDetail() {
 
   if (!product) return null;
 
-  const specs    = product.specs    || {};
-  const features = product.features || [];
-  const images   = product.images   || [];
+  const specs      = product.specs    || {};
+  const features   = product.features || [];
+  const images     = product.images   || [];
+  const inclusions = (product.inclusions || []).map(i => typeof i === 'string' ? {name:i, price:0} : i);
   const hasImages = images.length > 0;
 
   const prevImg = () => setImgIndex(i => (i - 1 + images.length) % images.length);
@@ -200,6 +201,27 @@ export default function ProductDetail() {
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                       <CheckCircle size={15} color="var(--blue)" style={{ flexShrink: 0, marginTop: '2px' }} />
                       <span style={{ fontSize: '0.88rem', color: 'var(--navy)', lineHeight: 1.5 }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Inclusions */}
+            {inclusions.length > 0 && (
+              <div style={{ marginBottom: '28px' }}>
+                <p style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>
+                  What's in the Box
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {inclusions.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'rgba(166,113,228,0.04)', borderRadius: '8px', border: '1px solid rgba(166,113,228,0.1)' }}>
+                      <span style={{ fontSize: '13px', flexShrink: 0 }}>📦</span>
+                      <span style={{ fontSize: '0.88rem', color: 'var(--navy)', flex: 1 }}>{item.name}</span>
+                      {item.price > 0
+                        ? <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#22a85a', background: 'rgba(34,168,90,0.1)', padding: '3px 10px', borderRadius: '12px', flexShrink: 0 }}>+₱{Number(item.price).toLocaleString()}</span>
+                        : <span style={{ fontSize: '0.75rem', color: 'var(--gray)', fontWeight: 500, flexShrink: 0 }}>Included</span>
+                      }
                     </div>
                   ))}
                 </div>

@@ -7,6 +7,7 @@ import ProductDetail from './pages/ProductDetail';
 import Order from './pages/Order';
 import OrderConfirmation from './pages/OrderConfirmation';
 import Contact from './pages/Contact';
+import Troubleshooting from './pages/Troubleshooting';
 import Track from './pages/Track';
 import Warranty from './pages/Warranty';
 import AdminLogin from './pages/admin/AdminLogin';
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/products/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
         <Route path="/order" element={<PublicLayout><Order /></PublicLayout>} />
         <Route path="/order/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
+        <Route path="/troubleshooting" element={<PublicLayout><Troubleshooting /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/track" element={<PublicLayout><Track /></PublicLayout>} />
         <Route path="/warranty" element={<PublicLayout><Warranty /></PublicLayout>} />

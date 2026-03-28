@@ -232,6 +232,14 @@ export default function AdminDashboard() {
 
   const riderChannelRef  = useRef(null);
   const ordersChannelRef = useRef(null);
+  const lbcTrackingRef   = useRef(null);
+  const lbcFeeRef        = useRef(null);
+
+  // Troubleshooting videos
+  const [tsVideos,      setTsVideos]      = useState([]);
+  const [tsLoading,     setTsLoading]     = useState(false);
+  const [tsSaving,      setTsSaving]      = useState(false);
+  const [tsForm,        setTsForm]        = useState({ title: '', description: '', video_url: '' });
 
   // Activity Log state
   const [activityLog,    setActivityLog]   = useState([]);
@@ -417,6 +425,31 @@ export default function AdminDashboard() {
     await supabase.from('app_settings').upsert({ key: 'out_of_warranty_message', value: outOfWarrantyMsgEdit }, { onConflict: 'key' });
     setOutOfWarrantyMsg(outOfWarrantyMsgEdit);
     setSavingOowMsg(false);
+  };
+
+  // ── Troubleshooting videos ────────────────────────────────
+  const loadTsVideos = async () => {
+    setTsLoading(true);
+    const { data } = await supabase.from('troubleshooting_videos').select('*').order('created_at', { ascending: true });
+    setTsVideos(data || []);
+    setTsLoading(false);
+  };
+
+  const addTsVideo = async () => {
+    const { title, description, video_url } = tsForm;
+    if (!title.trim() || !video_url.trim()) return;
+    setTsSaving(true);
+    const { data } = await supabase.from('troubleshooting_videos')
+      .insert({ title: title.trim(), description: description.trim() || null, video_url: video_url.trim() })
+      .select().single();
+    if (data) setTsVideos(prev => [...prev, data]);
+    setTsForm({ title: '', description: '', video_url: '' });
+    setTsSaving(false);
+  };
+
+  const deleteTsVideo = async (id) => {
+    await supabase.from('troubleshooting_videos').delete().eq('id', id);
+    setTsVideos(prev => prev.filter(v => v.id !== id));
   };
 
   const logAction = async (action, description, orderId = null, refCode = null) => {
@@ -960,17 +993,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : view === 'troubleshooting' ? 'Basic Troubleshooting' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : view === 'troubleshooting' ? `${tsVideos.length} video${tsVideos.length !== 1 ? 's' : ''} published` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }, { id: 'troubleshooting', label: '🔩 Troubleshooting' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); if (id === 'troubleshooting') loadTsVideos(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -1092,6 +1125,78 @@ export default function AdminDashboard() {
 
         {/* ── Rider Map view ── */}
         {view === 'map' && <AllRidersMap />}
+
+        {/* ── Basic Troubleshooting ── */}
+        {view === 'troubleshooting' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '24px', alignItems: 'start' }}>
+
+            {/* ── Add video form ── */}
+            <div style={{ background: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 2px 12px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)', position: 'sticky', top: '24px' }}>
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '16px' }}>Add New Video</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>Title *</p>
+                  <input className="input-field" placeholder="e.g. How to reset the machine" value={tsForm.title}
+                    onChange={e => setTsForm(f => ({ ...f, title: e.target.value }))} style={{ fontSize: '0.85rem' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>Description</p>
+                  <textarea className="input-field" placeholder="Brief description of what this video covers…" value={tsForm.description} rows={3}
+                    onChange={e => setTsForm(f => ({ ...f, description: e.target.value }))}
+                    style={{ fontSize: '0.85rem', resize: 'vertical', fontFamily: 'Inter, sans-serif' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>YouTube / Video URL *</p>
+                  <input className="input-field" placeholder="https://www.youtube.com/watch?v=…" value={tsForm.video_url}
+                    onChange={e => setTsForm(f => ({ ...f, video_url: e.target.value }))} style={{ fontSize: '0.85rem' }} />
+                </div>
+                <button
+                  disabled={tsSaving || !tsForm.title.trim() || !tsForm.video_url.trim()}
+                  onClick={addTsVideo}
+                  style={{ width: '100%', padding: '11px', fontSize: '0.85rem', fontWeight: 700, cursor: (tsSaving || !tsForm.title.trim() || !tsForm.video_url.trim()) ? 'not-allowed' : 'pointer', borderRadius: '8px', border: 'none', background: (tsSaving || !tsForm.title.trim() || !tsForm.video_url.trim()) ? 'rgba(166,113,228,0.3)' : 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontFamily: 'Inter, sans-serif', transition: 'opacity 0.15s' }}
+                >
+                  {tsSaving ? 'Adding…' : '+ Add Video'}
+                </button>
+              </div>
+            </div>
+
+            {/* ── Video list ── */}
+            <div>
+              {tsLoading ? (
+                <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Loading…</p>
+              ) : tsVideos.length === 0 ? (
+                <div style={{ background: 'white', borderRadius: '14px', padding: '48px', textAlign: 'center', border: '1px solid rgba(166,113,228,0.12)' }}>
+                  <p style={{ fontSize: '2rem', marginBottom: '12px' }}>🔩</p>
+                  <p style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: '6px' }}>No videos yet</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--gray)' }}>Add a YouTube video using the form on the left to publish it in the customer troubleshooting page.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {tsVideos.map(v => (
+                    <div key={v.id} style={{ background: 'white', borderRadius: '14px', padding: '20px', display: 'flex', gap: '18px', alignItems: 'flex-start', boxShadow: '0 2px 12px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+                      {/* Thumbnail preview */}
+                      <div style={{ flexShrink: 0, width: '160px', aspectRatio: '16/9', borderRadius: '8px', overflow: 'hidden', background: '#000' }}>
+                        <iframe src={(() => { try { const u = new URL(v.video_url); if (u.hostname.includes('youtube.com')) { const id = u.searchParams.get('v'); if (id) return `https://www.youtube.com/embed/${id}`; } if (u.hostname === 'youtu.be') { const id = u.pathname.slice(1); if (id) return `https://www.youtube.com/embed/${id}`; } } catch {} return v.video_url; })()}
+                          title={v.title} frameBorder="0" allowFullScreen style={{ width: '100%', height: '100%' }} />
+                      </div>
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.95rem', marginBottom: '4px' }}>{v.title}</p>
+                        {v.description && <p style={{ fontSize: '0.82rem', color: 'var(--gray)', lineHeight: 1.6, marginBottom: '8px' }}>{v.description}</p>}
+                        <p style={{ fontSize: '0.72rem', color: 'rgba(166,113,228,0.6)', wordBreak: 'break-all' }}>{v.video_url}</p>
+                      </div>
+                      {/* Delete */}
+                      <button onClick={() => deleteTsVideo(v.id)}
+                        style={{ flexShrink: 0, padding: '6px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', borderRadius: '8px', border: '1px solid rgba(231,76,60,0.2)', background: 'rgba(231,76,60,0.05)', color: 'var(--red)', fontFamily: 'Inter, sans-serif' }}>
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Activity Log view ── */}
         {view === 'activity' && (
@@ -1714,7 +1819,7 @@ export default function AdminDashboard() {
 
             {/* Tab bar */}
             <div style={{ display: 'flex', borderBottom: '1px solid rgba(166,113,228,0.1)', flexShrink: 0 }}>
-              {DRAWER_TABS.filter(tab => !(tab.id === 'rider' && (selected?.delivery_type || 'rider') === 'lbc')).map(({ id, label, Icon }) => (
+              {DRAWER_TABS.filter(tab => !(tab.id === 'rider' && ['lbc', 'jnt'].includes(selected?.delivery_type))).map(({ id, label, Icon }) => (
                 <button key={id} onClick={() => { setDrawerTab(id); if (id === 'rider') loadAvailableRiders(); }}
                   style={{ flex: 1, padding: '12px 4px', border: 'none', background: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', borderBottom: drawerTab === id ? '2px solid var(--blue)' : '2px solid transparent', fontFamily: 'Inter, sans-serif', transition: 'all 0.15s' }}>
                   <Icon size={16} color={drawerTab === id ? 'var(--blue)' : 'var(--gray)'} />
@@ -1790,8 +1895,8 @@ export default function AdminDashboard() {
                   {/* ── Delivery Method ── */}
                   <div style={{ background: 'rgba(166,113,228,0.04)', borderRadius: '12px', padding: '16px', border: '1px solid rgba(166,113,228,0.12)', marginBottom: '16px' }}>
                     <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>Delivery Method</p>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: (selected?.delivery_type || 'rider') === 'lbc' ? '14px' : '0' }}>
-                      {[{ val: 'rider', label: '🏍️ Rider', color: 'var(--blue)' }, { val: 'lbc', label: '📦 LBC', color: '#e67e22' }].map(({ val, label, color }) => {
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: ['lbc','jnt'].includes(selected?.delivery_type || 'rider') ? '14px' : '0' }}>
+                      {[{ val: 'rider', label: '🏍️ Rider', color: 'var(--blue)' }, { val: 'lbc', label: '📦 LBC', color: '#e67e22' }, { val: 'jnt', label: '🚚 J&T', color: '#e8242b' }].map(({ val, label, color }) => {
                         const active = (selected?.delivery_type || 'rider') === val;
                         return (
                           <button key={val} disabled={savingDelivery}
@@ -1801,53 +1906,69 @@ export default function AdminDashboard() {
                         );
                       })}
                     </div>
-                    {(selected?.delivery_type || 'rider') === 'lbc' && (
+                    {['lbc','jnt'].includes(selected?.delivery_type || 'rider') && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div>
-                          <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>LBC Tracking Number</p>
-                          <input
-                            className="input-field"
-                            style={{ fontSize: '0.85rem', letterSpacing: '0.05em' }}
-                            placeholder="Enter LBC tracking number"
-                            defaultValue={selected?.lbc_tracking_number || ''}
-                            key={`track-${selected?.id}`}
-                            onBlur={e => { if (e.target.value !== (selected?.lbc_tracking_number || '')) saveLbcDetails(selected.id, { lbc_tracking_number: e.target.value || null }); }}
-                          />
-                        </div>
-                        <div>
-                          <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>LBC Shipping Fee (₱)</p>
-                          <input
-                            className="input-field"
-                            style={{ fontSize: '0.85rem' }}
-                            type="number" min="0" step="0.01"
-                            placeholder="0.00"
-                            defaultValue={selected?.lbc_shipping_fee || ''}
-                            key={`fee-${selected?.id}`}
-                            onBlur={e => { const v = parseFloat(e.target.value) || 0; if (v !== (selected?.lbc_shipping_fee || 0)) saveLbcDetails(selected.id, { lbc_shipping_fee: v }); }}
-                          />
-                        </div>
-                        {selected?.assigned_sales_id && (
                           <div>
-                            <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '6px', fontWeight: 600 }}>LBC Fee Paid By</p>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              {[{ val: 'customer', label: 'Customer' }, { val: 'sales_rep', label: 'Sales Rep' }].map(({ val, label }) => {
-                                const active = (selected?.lbc_fee_paid_by || 'customer') === val;
-                                return (
-                                  <button key={val} disabled={savingDelivery}
-                                    onClick={() => saveLbcDetails(selected.id, { lbc_fee_paid_by: val })}
-                                    style={{ flex: 1, padding: '8px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', borderRadius: '8px', border: `1.5px solid ${active ? 'var(--blue)' : 'rgba(166,113,228,0.15)'}`, background: active ? 'rgba(166,113,228,0.12)' : 'transparent', color: active ? 'var(--blue)' : 'var(--gray)', fontFamily: 'Inter, sans-serif' }}
-                                  >{label}</button>
-                                );
-                              })}
-                            </div>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>{selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC'} Tracking Number</p>
+                            <input
+                              ref={lbcTrackingRef}
+                              className="input-field"
+                              style={{ fontSize: '0.85rem', letterSpacing: '0.05em' }}
+                              placeholder={`Enter ${selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC'} tracking number`}
+                              defaultValue={selected?.lbc_tracking_number || ''}
+                              key={`track-${selected?.id}`}
+                              onBlur={e => { if (e.target.value !== (selected?.lbc_tracking_number || '')) saveLbcDetails(selected.id, { lbc_tracking_number: e.target.value || null }); }}
+                            />
                           </div>
-                        )}
-                        {selected?.lbc_tracking_number && (
-                          <a href={`https://www.lbcexpress.com/track/?tracking_no=${selected.lbc_tracking_number}`} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#e67e22', fontWeight: 600, textDecoration: 'none' }}>
-                            📦 View on LBC Express ↗
-                          </a>
-                        )}
+                          <div>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '4px', fontWeight: 600 }}>{selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC'} Shipping Fee (₱)</p>
+                            <input
+                              ref={lbcFeeRef}
+                              className="input-field"
+                              style={{ fontSize: '0.85rem' }}
+                              type="number" min="0" step="0.01"
+                              placeholder="0.00"
+                              defaultValue={selected?.lbc_shipping_fee || ''}
+                              key={`fee-${selected?.id}`}
+                              onBlur={e => { const v = parseFloat(e.target.value) || 0; if (v !== (selected?.lbc_shipping_fee || 0)) saveLbcDetails(selected.id, { lbc_shipping_fee: v }); }}
+                            />
+                          </div>
+                          <button
+                            disabled={savingDelivery}
+                            onClick={() => {
+                              const tracking = lbcTrackingRef.current?.value?.trim() || null;
+                              const fee = parseFloat(lbcFeeRef.current?.value) || 0;
+                              saveLbcDetails(selected.id, {
+                                lbc_tracking_number: tracking || null,
+                                lbc_shipping_fee: fee,
+                              });
+                            }}
+                            style={{ width: '100%', padding: '10px', fontSize: '0.82rem', fontWeight: 700, cursor: savingDelivery ? 'not-allowed' : 'pointer', borderRadius: '8px', border: 'none', background: savingDelivery ? (selected?.delivery_type === 'jnt' ? 'rgba(232,36,43,0.4)' : 'rgba(230,126,34,0.4)') : (selected?.delivery_type === 'jnt' ? '#e8242b' : '#e67e22'), color: 'white', fontFamily: 'Inter, sans-serif', transition: 'background 0.15s' }}
+                          >
+                            {savingDelivery ? 'Saving…' : `💾 Save ${selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC'} Details`}
+                          </button>
+                          {selected?.assigned_sales_id && (
+                            <div>
+                              <p style={{ fontSize: '0.72rem', color: 'var(--gray)', marginBottom: '6px', fontWeight: 600 }}>{selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC'} Fee Paid By</p>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                {[{ val: 'customer', label: 'Customer' }, { val: 'sales_rep', label: 'Sales Rep' }].map(({ val, label }) => {
+                                  const active = (selected?.lbc_fee_paid_by || 'customer') === val;
+                                  return (
+                                    <button key={val} disabled={savingDelivery}
+                                      onClick={() => saveLbcDetails(selected.id, { lbc_fee_paid_by: val })}
+                                      style={{ flex: 1, padding: '8px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', borderRadius: '8px', border: `1.5px solid ${active ? 'var(--blue)' : 'rgba(166,113,228,0.15)'}`, background: active ? 'rgba(166,113,228,0.12)' : 'transparent', color: active ? 'var(--blue)' : 'var(--gray)', fontFamily: 'Inter, sans-serif' }}
+                                    >{label}</button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {selected?.lbc_tracking_number && (
+                            <a href={selected?.delivery_type === 'jnt' ? `https://www.jtexpress.ph/index/query/gzquery.html?bills=${selected.lbc_tracking_number}` : `https://www.lbcexpress.com/track/?tracking_no=${selected.lbc_tracking_number}`} target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: selected?.delivery_type === 'jnt' ? '#e8242b' : '#e67e22', fontWeight: 600, textDecoration: 'none' }}>
+                              {selected?.delivery_type === 'jnt' ? '🚚' : '📦'} View on {selected?.delivery_type === 'jnt' ? 'J&T Express' : 'LBC Express'} ↗
+                            </a>
+                          )}
                       </div>
                     )}
                   </div>
@@ -1877,7 +1998,7 @@ export default function AdminDashboard() {
                   )}
 
                   {/* Assignment */}
-                  {(selected?.delivery_type || 'rider') !== 'lbc' ? (
+                  {!['lbc', 'jnt'].includes(selected?.delivery_type) ? (
                     <InfoSection title="Assignment" rows={[
                       { Icon: User, label: 'Sales Rep', value: selected.assigned_sales?.full_name || 'Set by customer' },
                       { Icon: Truck,label: 'Rider',     value: selected.assigned_rider?.full_name || 'Unassigned' },
@@ -1997,7 +2118,9 @@ export default function AdminDashboard() {
               {/* ── Financials ── */}
               {drawerTab === 'financials' && (() => {
                 const o = selected;
-                const isLbc = (o.delivery_type || 'rider') === 'lbc';
+                const isLbc    = (o.delivery_type || 'rider') === 'lbc';
+                const isJnt    = (o.delivery_type || 'rider') === 'jnt';
+                const isCourier = isLbc || isJnt;
                 const effectiveAmount = o.amount_received ?? deliveryProof?.amount_received ?? null;
                 const commA     = o.commission_a       || 0;
                 const commB     = effectiveAmount != null ? (effectiveAmount - (o.product_base_price || 0)) : 0;
@@ -2008,15 +2131,15 @@ export default function AdminDashboard() {
                 const lbcFee    = o.lbc_shipping_fee || 0;
                 const lbcPaidBy = o.lbc_fee_paid_by || 'customer';
 
-                // LBC: sales rep absorbs the lbc fee if lbc_fee_paid_by === 'sales_rep'
-                const salesCompLbc  = lbcPaidBy === 'sales_rep' ? salesBase - lbcFee : salesBase;
-                const salesComp     = isLbc
-                  ? salesCompLbc
+                // Courier (LBC/J&T): sales rep absorbs fee if lbc_fee_paid_by === 'sales_rep'
+                const salesCompCourier = lbcPaidBy === 'sales_rep' ? salesBase - lbcFee : salesBase;
+                const salesComp     = isCourier
+                  ? salesCompCourier
                   : (o.delivery_fee_paid_by === 'employee' ? salesBase - riderBase : salesBase);
                 const salesFinal = o.sales_rep_commission_override ?? salesComp;
-                const riderFinal = isLbc ? 0 : (o.rider_commission_override ?? riderBase);
-                // For LBC where customer pays fee, fee doesn't affect profit (customer shoulders it externally)
-                // For LBC where sales_rep pays, it's already deducted from salesFinal
+                const riderFinal = isCourier ? 0 : (o.rider_commission_override ?? riderBase);
+                // For courier where customer pays fee, fee doesn't affect profit (customer shoulders it externally)
+                // For courier where sales_rep pays, it's already deducted from salesFinal
                 const profit     = (effectiveAmount || 0) - salesFinal - riderFinal;
 
                 const commRow = (label, value, highlight) => (
@@ -2033,10 +2156,10 @@ export default function AdminDashboard() {
                   {effectiveAmount != null && (
                     <div style={{ background: 'rgba(166,113,228,0.05)', border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                       {commRow('Amount Received', effectiveAmount)}
-                      {isLbc ? (
+                      {isCourier ? (
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px' }}>
                           <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>Delivery Method</span>
-                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e67e22' }}>📦 LBC Express</span>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isJnt ? '#e8242b' : '#e67e22' }}>{isJnt ? '🚚 J&T Express' : '📦 LBC Express'}</span>
                         </div>
                       ) : (
                         <>
@@ -2068,8 +2191,8 @@ export default function AdminDashboard() {
                     <div style={{ border: '1px solid rgba(166,113,228,0.12)', borderRadius: '10px', overflow: 'hidden' }}>
                       {commRow('A  (Product commission)', commA)}
                       {commRow('B  (Overtop tip)', commB)}
-                      {!isLbc && o.delivery_fee_paid_by === 'employee' && commRow('− Rider fee (employee shoulders)', -riderBase)}
-                      {isLbc && lbcPaidBy === 'sales_rep' && commRow('− LBC shipping fee (sales rep shoulders)', -lbcFee)}
+                      {!isCourier && o.delivery_fee_paid_by === 'employee' && commRow('− Rider fee (employee shoulders)', -riderBase)}
+                      {isCourier && lbcPaidBy === 'sales_rep' && commRow(`− ${isJnt ? 'J&T' : 'LBC'} shipping fee (sales rep shoulders)`, -lbcFee)}
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', background: 'rgba(166,113,228,0.06)', borderTop: '2px solid rgba(166,113,228,0.12)' }}>
                         <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)' }}>{o.sales_rep_commission_override != null ? 'Final (override)' : 'Total'}</span>
                         <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--blue)' }}>₱{salesFinal.toFixed(2)}</span>
@@ -2077,11 +2200,11 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  {/* Rider commission / LBC Shipping Fee */}
-                  {isLbc ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', border: '1px solid rgba(230,126,34,0.15)', borderRadius: '10px', background: 'rgba(230,126,34,0.04)' }}>
-                      <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>LBC Shipping Fee</span>
-                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e67e22' }}>
+                  {/* Rider commission / Courier Shipping Fee */}
+                  {isCourier ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 14px', border: `1px solid ${isJnt ? 'rgba(232,36,43,0.15)' : 'rgba(230,126,34,0.15)'}`, borderRadius: '10px', background: isJnt ? 'rgba(232,36,43,0.04)' : 'rgba(230,126,34,0.04)' }}>
+                      <span style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>{isJnt ? 'J&T' : 'LBC'} Shipping Fee</span>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: isJnt ? '#e8242b' : '#e67e22' }}>
                         ₱{lbcFee.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                         <span style={{ fontSize: '0.72rem', color: 'var(--gray)', marginLeft: '6px' }}>
                           ({lbcPaidBy === 'customer' ? 'Paid by customer' : 'Deducted from sales rep'})

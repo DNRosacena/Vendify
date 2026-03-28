@@ -88,7 +88,7 @@ export default function Track() {
 
     const { data, error: err } = await supabase
       .from('orders')
-      .select('*, assigned_sales:assigned_sales_id(full_name), delivery_type, lbc_tracking_number')
+      .select('*, assigned_sales:assigned_sales_id(full_name)')
       .eq('reference_code', refCode.trim().toUpperCase())
       .single();
 
@@ -106,14 +106,14 @@ export default function Track() {
         }, async () => {
           const { data: updated } = await supabase
             .from('orders')
-            .select('*, assigned_sales:assigned_sales_id(full_name), delivery_type, lbc_tracking_number')
+            .select('*, assigned_sales:assigned_sales_id(full_name)')
             .eq('id', data.id)
             .single();
           if (updated) setOrder(updated);
         })
         .subscribe();
 
-      if (data.status === 'out_for_delivery' && data.assigned_rider_id && data.delivery_type !== 'lbc') {
+      if (data.status === 'out_for_delivery' && data.assigned_rider_id && data.delivery_type !== 'lbc' && data.delivery_type !== 'jnt') {
         loadRiderLocation(data.assigned_rider_id);
       }
     }
@@ -313,6 +313,36 @@ export default function Track() {
                     </>
                   ) : (
                     <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Your order is being processed by LBC. The tracking number will appear here once available. / Pinoproseso ng LBC ang inyong order. Lilitaw ang tracking number kapag available na.</p>
+                  )}
+                </div>
+              ) : order.delivery_type === 'jnt' ? (
+                <div style={{ background: 'white', borderRadius: '14px', padding: '28px', marginBottom: '16px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(232,36,43,0.2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                    <span style={{ fontSize: '2rem' }}>🚚</span>
+                    <div>
+                      <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>Your order is on its way via J&T Express!</h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--gray)', marginTop: '3px' }}>Naipadala na ang inyong order sa pamamagitan ng J&T Express.</p>
+                    </div>
+                  </div>
+                  {order.lbc_tracking_number ? (
+                    <>
+                      <div style={{ background: 'rgba(232,36,43,0.06)', border: '1px solid rgba(232,36,43,0.2)', borderRadius: '10px', padding: '14px 18px', marginBottom: '14px' }}>
+                        <p style={{ fontSize: '0.7rem', color: '#e8242b', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px' }}>J&T Tracking Number</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', letterSpacing: '0.08em', fontFamily: 'monospace', margin: 0 }}>{order.lbc_tracking_number}</p>
+                      </div>
+                      <a
+                        href={`https://www.jtexpress.ph/index/query/gzquery.html?bills=${order.lbc_tracking_number}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '11px 22px', background: '#e8242b', color: 'white', fontWeight: 700, fontSize: '0.88rem', borderRadius: '10px', textDecoration: 'none', boxShadow: '0 4px 14px rgba(232,36,43,0.3)' }}
+                      >
+                        🚚 Track via J&T Express ↗
+                      </a>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--gray)', marginTop: '12px', lineHeight: 1.6 }}>
+                        Track your package on the J&T Express website using the tracking number above. / I-track ang inyong pakete sa J&T Express website gamit ang tracking number sa itaas.
+                      </p>
+                    </>
+                  ) : (
+                    <p style={{ color: 'var(--gray)', fontSize: '0.88rem' }}>Your order is being processed by J&T Express. The tracking number will appear here once available. / Pinoproseso ng J&T Express ang inyong order. Lilitaw ang tracking number kapag available na.</p>
                   )}
                 </div>
               ) : (

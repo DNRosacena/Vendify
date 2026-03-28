@@ -21,8 +21,9 @@ export default function Navbar() {
     { label: 'Products', labelFil: 'Produkto',        path: '/products' },
     { label: 'Order',    labelFil: 'Umorder',         path: '/order' },
     { label: 'Track',    labelFil: 'Subaybayan',      path: '/track' },
-    { label: 'Warranty', labelFil: 'Garantiya',       path: '/warranty' },
-    { label: 'Contact',  labelFil: 'Makipag-ugnayan', path: '/contact' },
+    { label: 'Warranty',        labelFil: 'Garantiya',       path: '/warranty' },
+    { label: 'Troubleshooting', labelFil: 'Pag-aayos',      path: '/troubleshooting' },
+    { label: 'Contact',         labelFil: 'Makipag-ugnayan', path: '/contact' },
   ];
 
   return (

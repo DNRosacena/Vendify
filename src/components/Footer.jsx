@@ -56,9 +56,9 @@ export default function Footer() {
         <div>
           <p style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '16px' }}>Contact</p>
           {[
-            { icon: Phone, text: '+63 9XX XXX XXXX' },
-            { icon: Mail,  text: 'info@Vendify.ph' },
-            { icon: MapPin,text: 'Metro Manila, Philippines' },
+            { icon: Phone, text: '+63 905 187 0328' },
+            { icon: Mail,  text: 'vendongbayan@gmail.com' },
+            { icon: MapPin,text: 'Rodriguez, Rizal, Philippines' },
           ].map(({ icon: Icon, text }, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <Icon size={14} color="var(--red)" />

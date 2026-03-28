@@ -86,10 +86,17 @@ export default function Track() {
       orderChannelRef.current = null;
     }
 
+    // Normalize: strip spaces/dashes, uppercase, then re-insert dash
+    // Format: VND{YYMMDD}-{4digits}  e.g. VND260310-1234
+    let normalized = refCode.trim().toUpperCase().replace(/[\s\-]/g, '');
+    if (/^VND\d{10}$/.test(normalized)) {
+      normalized = normalized.slice(0, 9) + '-' + normalized.slice(9);
+    }
+
     const { data, error: err } = await supabase
       .from('orders')
       .select('*, assigned_sales:assigned_sales_id(full_name)')
-      .eq('reference_code', refCode.trim().toUpperCase())
+      .eq('reference_code', normalized)
       .single();
 
     if (err || !data) {
@@ -168,27 +175,33 @@ export default function Track() {
           </p>
 
           {/* Search box */}
-          <div style={{ display: 'flex', gap: '10px', maxWidth: '480px', margin: '0 auto' }}>
+          <form
+            onSubmit={e => { e.preventDefault(); handleSearch(); }}
+            style={{ display: 'flex', gap: '10px', maxWidth: '480px', margin: '0 auto' }}
+          >
             <div style={{ flex: 1, position: 'relative' }}>
               <Search size={16} color="rgba(255,255,255,0.35)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 value={refCode}
                 onChange={e => setRefCode(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 placeholder="e.g. VND260310-1234"
-                style={{ width: '100%', padding: '13px 16px 13px 42px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '10px', color: 'white', fontSize: '0.92rem', outline: 'none', fontFamily: 'Inter, sans-serif', letterSpacing: '0.04em' }}
+                autoCorrect="off"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                style={{ width: '100%', padding: '13px 16px 13px 42px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '10px', color: 'white', fontSize: '1rem', outline: 'none', fontFamily: 'Inter, sans-serif', letterSpacing: '0.04em' }}
                 onFocus={e => e.target.style.borderColor = 'rgba(166,113,228,0.6)'}
                 onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.25)'}
               />
             </div>
             <button
-              onClick={handleSearch}
+              type="submit"
               disabled={loading || !refCode.trim()}
               style={{ padding: '13px 24px', background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontWeight: 700, fontSize: '0.9rem', border: 'none', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading || !refCode.trim() ? 0.5 : 1, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(166,113,228,0.3)' }}
             >
               {loading ? '…' : 'Track'}
             </button>
-          </div>
+          </form>
         </div>
       </div>
 

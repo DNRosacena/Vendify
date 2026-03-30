@@ -86,11 +86,12 @@ export default function Track() {
       orderChannelRef.current = null;
     }
 
-    // Normalize: strip spaces/dashes, uppercase, then re-insert dash
-    // Format: VND{YYMMDD}-{4digits}  e.g. VND260310-1234
-    let normalized = refCode.trim().toUpperCase().replace(/[\s\-]/g, '');
-    if (/^VND\d{10}$/.test(normalized)) {
-      normalized = normalized.slice(0, 9) + '-' + normalized.slice(9);
+    // Normalize: strip spaces only, then handle VND codes missing their dash.
+    // Non-VND formats (e.g. CVS-1069-CNCB) are left unchanged so dashes are preserved.
+    let normalized = refCode.trim().toUpperCase().replace(/\s/g, '');
+    const strippedNorm = normalized.replace(/-/g, '');
+    if (/^VND\d{10}$/.test(strippedNorm)) {
+      normalized = strippedNorm.slice(0, 9) + '-' + strippedNorm.slice(9);
     }
 
     const { data, error: err } = await supabase

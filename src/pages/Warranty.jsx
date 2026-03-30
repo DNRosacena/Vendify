@@ -61,11 +61,12 @@ export default function Warranty() {
     setWarrantyData(null);
     setSuccessRef(null);
 
-    // Normalize: strip spaces/dashes, uppercase, re-insert dash
-    // Format: VND{YYMMDD}-{4digits}  e.g. VND260310-1234
-    let code = refInput.trim().toUpperCase().replace(/[\s\-]/g, '');
-    if (/^VND\d{10}$/.test(code)) {
-      code = code.slice(0, 9) + '-' + code.slice(9);
+    // Normalize: strip spaces only, then handle VND codes missing their dash.
+    // Non-VND formats (e.g. CVS-1069-CNCB) are left unchanged so dashes are preserved.
+    let code = refInput.trim().toUpperCase().replace(/\s/g, '');
+    const strippedCode = code.replace(/-/g, '');
+    if (/^VND\d{10}$/.test(strippedCode)) {
+      code = strippedCode.slice(0, 9) + '-' + strippedCode.slice(9);
     }
 
     // Fetch order

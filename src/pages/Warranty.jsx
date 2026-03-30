@@ -55,12 +55,18 @@ export default function Warranty() {
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    const code = refInput.trim().toUpperCase();
-    if (!code) return;
+    if (!refInput.trim()) return;
     setSearching(true);
     setSearchError('');
     setWarrantyData(null);
     setSuccessRef(null);
+
+    // Normalize: strip spaces/dashes, uppercase, re-insert dash
+    // Format: VND{YYMMDD}-{4digits}  e.g. VND260310-1234
+    let code = refInput.trim().toUpperCase().replace(/[\s\-]/g, '');
+    if (/^VND\d{10}$/.test(code)) {
+      code = code.slice(0, 9) + '-' + code.slice(9);
+    }
 
     // Fetch order
     const { data: order } = await supabase
@@ -87,7 +93,7 @@ export default function Warranty() {
       .eq('order_id', order.id)
       .maybeSingle();
 
-    const deliveryDate = delivery?.created_at || order.updated_at;
+    const deliveryDate = delivery?.created_at || order.delivered_at || order.updated_at;
     const product = order.product;
     const warrantyDays = parseWarrantyDays(product?.warranty);
 
@@ -167,6 +173,25 @@ export default function Warranty() {
       return;
     }
 
+    // Notify all active admins about the new repair ticket
+    const { data: admins } = await supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'admin')
+      .eq('is_active', true);
+
+    if (admins?.length > 0) {
+      const productLabel = product?.name || order.product_name || 'a product';
+      const warrantyLabel = isUnderWarranty ? 'Warranty' : 'Out-of-Warranty';
+      await supabase.from('notifications').insert(
+        admins.map(admin => ({
+          user_id: admin.id,
+          title:   '🔧 New Repair Ticket',
+          body:    `${customerName} submitted a ${warrantyLabel} repair request for ${productLabel} (${ref})`,
+        }))
+      );
+    }
+
     setSuccessRef(ref);
     setSubmitting(false);
   };
@@ -242,15 +267,20 @@ export default function Warranty() {
             <h2 style={{ color: 'white', fontSize: '1.5rem', fontWeight: 800, marginBottom: '12px' }}>
               Repair Request Submitted!
             </h2>
-            <p style={{ color: 'rgba(255,255,255,0.5)', marginBottom: '24px' }}>Your repair ticket reference:</p>
+            <p style={{ color: 'rgba(255,255,255,0.5)', marginBottom: '16px' }}>Your repair ticket reference:</p>
             <div style={{
               display: 'inline-block',
               fontFamily: 'monospace', fontSize: '1.4rem', fontWeight: 800,
               color: 'var(--blue)', background: 'rgba(166,113,228,0.1)',
               border: '1px solid rgba(166,113,228,0.3)',
-              borderRadius: '10px', padding: '12px 28px', marginBottom: '24px',
+              borderRadius: '10px', padding: '12px 28px', marginBottom: '16px',
               letterSpacing: '0.05em',
             }}>{successRef}</div>
+            {warrantyData && (
+              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.8rem', marginBottom: '16px', fontFamily: 'monospace' }}>
+                Order ref: {warrantyData.order.reference_code}
+              </p>
+            )}
             <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.88rem', marginBottom: '32px', lineHeight: 1.6 }}>
               Please save this reference number. Our team will contact you within 24 hours.
             </p>
@@ -281,7 +311,7 @@ export default function Warranty() {
               <input
                 value={refInput}
                 onChange={e => { setRefInput(e.target.value); setSearchError(''); }}
-                placeholder="e.g. VND-1234-ABCD"
+                placeholder="e.g. VND260310-1234"
                 style={{ ...inputStyle, flex: 1 }}
                 onFocus={e => e.target.style.borderColor = 'var(--blue)'}
                 onBlur={e => e.target.style.borderColor = 'rgba(166,113,228,0.25)'}

@@ -374,6 +374,9 @@ export default function Track() {
                       zoom={15}
                       style={{ height: '280px', width: '100%' }}
                       scrollWheelZoom={false}
+                      dragging={false}
+                      touchZoom={false}
+                      doubleClickZoom={false}
                     >
                       <TileLayer
                         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"

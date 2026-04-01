@@ -407,9 +407,21 @@ export default function AdminDashboard() {
   const assignRepairRider = async (riderId, riderName) => {
     if (!selectedRepair) return;
     setAssigningRepairRider(true);
-    await supabase.from('repair_tickets').update({ assigned_rider_id: riderId, updated_at: new Date().toISOString() }).eq('id', selectedRepair.id);
-    setRepairs(prev => prev.map(r => r.id === selectedRepair.id ? { ...r, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } } : r));
-    setSelectedRepair(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName } }));
+    await supabase.from('repair_tickets').update({
+      assigned_rider_id: riderId,
+      status: 'out_for_repair',
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedRepair.id);
+    setRepairs(prev => prev.map(r => r.id === selectedRepair.id
+      ? { ...r, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_repair' }
+      : r));
+    setSelectedRepair(prev => ({ ...prev, assigned_rider_id: riderId, assigned_rider: { full_name: riderName }, status: 'out_for_repair' }));
+    // Notify the assigned rider
+    await supabase.from('notifications').insert({
+      user_id: riderId,
+      title:   '🔧 Repair Job Assigned / Na-assign ang Repair',
+      body:    `You have a new repair job: ${selectedRepair.reference_code} — ${selectedRepair.customer_name}`,
+    });
     setAssigningRepairRider(false);
   };
 
@@ -1015,8 +1027,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats — current month only (hidden on Products/Map/Users/Warranties view) */}
-        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && <>
+        {/* Stats — current month only (hidden on Products/Map/Users/Warranties/Troubleshooting view) */}
+        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && view !== 'troubleshooting' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />

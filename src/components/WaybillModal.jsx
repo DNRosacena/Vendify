@@ -101,7 +101,7 @@ export default function WaybillModal({ order, onClose }) {
               Waybill Preview
             </p>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem', margin: '2px 0 0' }}>
-              1/8 A4 (A7) · 105 × 74 mm · {order.reference_code}
+              1/8 A4 · 99 × 68 mm · A4 paper · {order.reference_code}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -146,7 +146,7 @@ export default function WaybillModal({ order, onClose }) {
 
         {/* Hint */}
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.68rem', margin: 0, paddingBottom: '4px', textAlign: 'center' }}>
-          Desktop: print wired or wirelessly via your OS print dialog · Phone: connect to same Wi-Fi → AirPrint (iOS) or Mopria (Android) · paper size: A7 / 105×74 mm
+          8 waybills per A4 sheet · Cut along dashed border · Desktop: wired or wireless · Phone: AirPrint (iOS) or Mopria (Android)
         </p>
       </div>
 
@@ -163,14 +163,12 @@ export default function WaybillModal({ order, onClose }) {
 
         @media print {
           @page {
-            size: 105mm 74mm;   /* A7 / 1/8 A4, landscape */
-            margin: 3mm;
+            size: A4 portrait;
+            margin: 5mm;
           }
 
-          /* Hide everything on the page during print */
           body * { visibility: hidden; }
 
-          /* Show only the waybill */
           #waybill-print-area,
           #waybill-print-area * { visibility: visible; }
 
@@ -179,9 +177,11 @@ export default function WaybillModal({ order, onClose }) {
             position: fixed;
             left: 0;
             top: 0;
-            width: 99mm;   /* page width minus margins */
-            height: 68mm;  /* page height minus margins */
+            width: 99mm;
+            height: 68mm;
             overflow: hidden;
+            border: 0.3mm dashed #bbb;
+            box-sizing: border-box;
           }
         }
       `}</style>

@@ -86,12 +86,21 @@ export default function Track() {
       orderChannelRef.current = null;
     }
 
-    // Normalize: strip spaces only, then handle VND codes missing their dash.
-    // Non-VND formats (e.g. CVS-1069-CNCB) are left unchanged so dashes are preserved.
+    // Normalize: uppercase, strip spaces and dashes, then reconstruct with dashes.
+    // Supports both formats regardless of case, spacing, or missing dashes:
+    //   Legacy VND:  VND260310-1234  → VND260310-1234
+    //   Current:     PWV-1181-NFUR   → PWV-1181-NFUR
+    //                pwv1181nfur     → PWV-1181-NFUR
+    //                PWV1181NFUR     → PWV-1181-NFUR
     let normalized = refCode.trim().toUpperCase().replace(/\s/g, '');
-    const strippedNorm = normalized.replace(/-/g, '');
-    if (/^VND\d{10}$/.test(strippedNorm)) {
-      normalized = strippedNorm.slice(0, 9) + '-' + strippedNorm.slice(9);
+    const stripped = normalized.replace(/-/g, '');
+    if (/^VND\d{10}$/.test(stripped)) {
+      // Legacy VND format: insert dash before the last 4 digits
+      normalized = stripped.slice(0, 9) + '-' + stripped.slice(9);
+    } else {
+      // Current format: LETTERS + 4 digits + 4 letters → PREFIX-DDDD-LLLL
+      const m = stripped.match(/^([A-Z]+)(\d{4})([A-Z]{4})$/);
+      if (m) normalized = `${m[1]}-${m[2]}-${m[3]}`;
     }
 
     const { data, error: err } = await supabase

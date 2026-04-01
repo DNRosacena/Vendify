@@ -287,7 +287,14 @@ export default function AdminDashboard() {
           .from('orders')
           .select('*, product:product_id(name, image_url), assigned_sales:assigned_sales_id(full_name), assigned_rider:assigned_rider_id(full_name)')
           .order('created_at', { ascending: false });
-        if (data) setOrders(data);
+        if (data) {
+          setOrders(data);
+          setSelected(prev => {
+            if (!prev) return prev;
+            const updated = data.find(o => o.id === prev.id);
+            return updated ?? prev;
+          });
+        }
       })
       .subscribe();
 

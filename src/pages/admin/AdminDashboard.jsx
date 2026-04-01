@@ -2071,7 +2071,7 @@ export default function AdminDashboard() {
                   <OrderChat
                     orderId={selected.id}
                     senderName={adminUser?.full_name || 'Admin'}
-                    senderType="user"
+                    senderType={adminUser?.role || 'admin'}
                     senderId={adminUser?.id || null}
                     salesId={selected.assigned_sales_id}
                     riderId={selected.assigned_rider_id}

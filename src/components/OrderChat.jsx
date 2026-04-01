@@ -28,7 +28,7 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
     const channel = supabase
       .channel(`chat_${orderId}`)
       .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'order_messages',
+        event: 'INSERT', schema: 'public', table: 'order_messages',
         filter: `order_id=eq.${orderId}`,
       }, loadMessages)
       .subscribe();
@@ -137,6 +137,16 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
   const fmtTime = (iso) =>
     new Date(iso).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
 
+  const roleLabel = (senderType) => {
+    switch (senderType) {
+      case 'admin':    return 'Admin';
+      case 'rider':    return 'Rider';
+      case 'sales':    return 'Sales';
+      case 'customer': return 'Customer';
+      default:         return '';
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -169,10 +179,15 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
             }}>
               {!own && (
                 <span style={{
-                  fontSize: '0.68rem', color: 'var(--gray)',
-                  fontWeight: 600, marginBottom: '3px', paddingLeft: '4px',
+                  fontSize: '0.68rem', fontWeight: 600,
+                  marginBottom: '3px', paddingLeft: '4px',
                 }}>
-                  {msg.sender_name}
+                  {roleLabel(msg.sender_type) && (
+                    <span style={{ color: 'var(--blue)' }}>
+                      {roleLabel(msg.sender_type)} |{' '}
+                    </span>
+                  )}
+                  <span style={{ color: 'var(--gray)' }}>{msg.sender_name}</span>
                 </span>
               )}
               <div style={{

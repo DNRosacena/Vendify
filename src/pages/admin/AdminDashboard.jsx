@@ -540,6 +540,11 @@ export default function AdminDashboard() {
     setContactLoading(false);
   };
 
+  const deleteContactMessage = async (id) => {
+    await supabase.from('contact_messages').delete().eq('id', id);
+    setContactMessages(prev => prev.filter(m => m.id !== id));
+  };
+
   const logAction = async (action, description, orderId = null, refCode = null) => {
     await supabase.from('activity_log').insert({
       actor_name:     adminUser?.full_name || 'Admin',
@@ -1455,9 +1460,20 @@ export default function AdminDashboard() {
                           </div>
                         </div>
                       </div>
-                      <p style={{ fontSize: '0.72rem', color: 'var(--gray)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {new Date(msg.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
-                      </p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--gray)', whiteSpace: 'nowrap' }}>
+                          {new Date(msg.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
+                        </p>
+                        <button
+                          onClick={() => deleteContactMessage(msg.id)}
+                          title="Delete message"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--gray)', borderRadius: '6px', transition: 'all 0.15s' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#E74C3C'; e.currentTarget.style.background = 'rgba(231,76,60,0.08)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--gray)'; e.currentTarget.style.background = 'none'; }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                     <p style={{ fontSize: '0.88rem', color: 'var(--navy)', lineHeight: 1.65, paddingLeft: '46px' }}>{msg.message}</p>
                   </div>

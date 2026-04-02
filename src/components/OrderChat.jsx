@@ -12,11 +12,12 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
  *  senderId    – uuid (for staff) | null (for customers)
  */
 export default function OrderChat({ orderId, senderName, senderType, senderId, salesId, riderId, referenceCode }) {
-  const [messages,  setMessages]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [text,      setText]      = useState('');
-  const [sending,   setSending]   = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [messages,   setMessages]  = useState([]);
+  const [loading,    setLoading]   = useState(true);
+  const [text,       setText]      = useState('');
+  const [sending,    setSending]   = useState(false);
+  const [uploading,  setUploading] = useState(false);
+  const [sendError,  setSendError] = useState('');
 
   const bottomRef = useRef(null);
   const fileRef   = useRef(null);
@@ -74,13 +75,19 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
   const sendText = async () => {
     if (!text.trim()) return;
     setSending(true);
-    await supabase.from('order_messages').insert({
+    setSendError('');
+    const { error } = await supabase.from('order_messages').insert({
       order_id:    orderId,
       sender_id:   senderId || null,
       sender_name: senderName,
       sender_type: senderType,
       content:     text.trim(),
     });
+    if (error) {
+      setSendError(error.message);
+      setSending(false);
+      return;
+    }
     notifyChat(); // fire-and-forget
     setText('');
     await loadMessages();
@@ -97,20 +104,23 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
       return;
     }
     setUploading(true);
+    setSendError('');
     const ext  = file.name.split('.').pop()?.toLowerCase();
     const path = `${orderId}/${Date.now()}-${file.name}`;
 
-    const { error } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('order-attachments')
       .upload(path, file);
 
-    if (!error) {
+    if (uploadError) {
+      setSendError(uploadError.message);
+    } else {
       const { data: { publicUrl } } = supabase.storage
         .from('order-attachments')
         .getPublicUrl(path);
 
       const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-      await supabase.from('order_messages').insert({
+      const { error: insertError } = await supabase.from('order_messages').insert({
         order_id:    orderId,
         sender_id:   senderId || null,
         sender_name: senderName,
@@ -119,8 +129,12 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
         file_name:   file.name,
         file_type:   isImage ? 'image' : 'file',
       });
-      notifyChat(); // fire-and-forget
-      await loadMessages();
+      if (insertError) {
+        setSendError(insertError.message);
+      } else {
+        notifyChat(); // fire-and-forget
+        await loadMessages();
+      }
     }
     setUploading(false);
     e.target.value = '';
@@ -137,14 +151,12 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
   const fmtTime = (iso) =>
     new Date(iso).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
 
-  const roleLabel = (senderType) => {
-    switch (senderType) {
-      case 'admin':    return 'Admin';
-      case 'rider':    return 'Rider';
-      case 'sales':    return 'Sales';
-      case 'customer': return 'Customer';
-      default:         return '';
-    }
+  const roleLabel = (msg) => {
+    if (msg.sender_type === 'customer') return 'Customer';
+    if (riderId && msg.sender_id === riderId) return 'Rider';
+    if (salesId && msg.sender_id === salesId) return 'Sales';
+    if (msg.sender_id) return 'Admin';
+    return '';
   };
 
   // ── Render ────────────────────────────────────────────────
@@ -182,9 +194,9 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
                   fontSize: '0.68rem', fontWeight: 600,
                   marginBottom: '3px', paddingLeft: '4px',
                 }}>
-                  {roleLabel(msg.sender_type) && (
+                  {roleLabel(msg) && (
                     <span style={{ color: 'var(--blue)' }}>
-                      {roleLabel(msg.sender_type)} |{' '}
+                      {roleLabel(msg)} |{' '}
                     </span>
                   )}
                   <span style={{ color: 'var(--gray)' }}>{msg.sender_name}</span>
@@ -236,6 +248,17 @@ export default function OrderChat({ orderId, senderName, senderType, senderId, s
         })}
         <div ref={bottomRef} />
       </div>
+
+      {/* Error banner */}
+      {sendError && (
+        <div style={{
+          padding: '6px 16px', fontSize: '0.75rem',
+          color: '#c0392b', background: 'rgba(192,57,43,0.06)',
+          borderTop: '1px solid rgba(192,57,43,0.15)',
+        }}>
+          ⚠️ {sendError}
+        </div>
+      )}
 
       {/* Input bar */}
       <div style={{

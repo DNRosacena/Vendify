@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LogOut, Package, Clock, CheckCircle, Truck, Star, XCircle,
          RefreshCw, ChevronDown, Search, User, Phone, MapPin, X,
          MessageCircle, MapPinned, Receipt, Info, Plus, Trash2, AlertTriangle,
-         Bell, Printer } from 'lucide-react';
+         Bell, Printer, Paperclip } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -230,10 +230,12 @@ export default function AdminDashboard() {
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
 
-  const riderChannelRef  = useRef(null);
-  const ordersChannelRef = useRef(null);
-  const lbcTrackingRef   = useRef(null);
-  const lbcFeeRef        = useRef(null);
+  const riderChannelRef   = useRef(null);
+  const ordersChannelRef  = useRef(null);
+  const repairsChannelRef = useRef(null);
+  const repairFileRef     = useRef(null);
+  const lbcTrackingRef    = useRef(null);
+  const lbcFeeRef         = useRef(null);
 
   // Troubleshooting videos
   const [tsVideos,      setTsVideos]      = useState([]);
@@ -262,6 +264,7 @@ export default function AdminDashboard() {
   const [repairChatMessages,   setRepairChatMessages]   = useState([]);
   const [repairCompletion,     setRepairCompletion]     = useState(null);
   const [repairChatInput,      setRepairChatInput]      = useState('');
+  const [repairChatError,      setRepairChatError]      = useState('');
   const [savingRepairNote,     setSavingRepairNote]     = useState(false);
   const [repairNote,           setRepairNote]           = useState('');
   const [repairAvailRiders,    setRepairAvailRiders]    = useState([]);
@@ -298,9 +301,29 @@ export default function AdminDashboard() {
       })
       .subscribe();
 
+    // Realtime repairs — keeps rider assignment in sync when rider claims
+    repairsChannelRef.current = supabase
+      .channel('admin_repairs_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_tickets' }, async () => {
+        const { data } = await supabase
+          .from('repair_tickets')
+          .select('*, assigned_rider:assigned_rider_id(full_name)')
+          .order('created_at', { ascending: false });
+        if (data) {
+          setRepairs(data);
+          setSelectedRepair(prev => {
+            if (!prev) return prev;
+            const updated = data.find(r => r.id === prev.id);
+            return updated ?? prev;
+          });
+        }
+      })
+      .subscribe();
+
     return () => {
-      if (notifChannelRef.current)  supabase.removeChannel(notifChannelRef.current);
-      if (ordersChannelRef.current) supabase.removeChannel(ordersChannelRef.current);
+      if (notifChannelRef.current)   supabase.removeChannel(notifChannelRef.current);
+      if (ordersChannelRef.current)  supabase.removeChannel(ordersChannelRef.current);
+      if (repairsChannelRef.current) supabase.removeChannel(repairsChannelRef.current);
     };
   }, []);
 
@@ -379,17 +402,45 @@ export default function AdminDashboard() {
 
   const sendRepairMessage = async () => {
     if (!repairChatInput.trim() || !selectedRepair) return;
-    const msg = {
+    setRepairChatError('');
+    const { error } = await supabase.from('repair_messages').insert({
       repair_id:   selectedRepair.id,
       sender_id:   adminUser?.id || null,
       sender_name: adminUser?.full_name || 'Admin',
       sender_role: 'admin',
       message:     repairChatInput.trim(),
-      created_at:  new Date().toISOString(),
-    };
-    await supabase.from('repair_messages').insert(msg);
-    setRepairChatMessages(prev => [...prev, msg]);
+    });
+    if (error) { setRepairChatError(error.message); return; }
     setRepairChatInput('');
+    await loadRepairChat(selectedRepair.id);
+  };
+
+  const sendRepairFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedRepair) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File too large. Maximum 5 MB.');
+      e.target.value = '';
+      return;
+    }
+    setRepairChatError('');
+    const ext    = file.name.split('.').pop()?.toLowerCase();
+    const path   = `repairs/${selectedRepair.id}/${Date.now()}-${file.name}`;
+    const { error: uploadError } = await supabase.storage.from('order-attachments').upload(path, file);
+    if (uploadError) { setRepairChatError(uploadError.message); e.target.value = ''; return; }
+    const { data: { publicUrl } } = supabase.storage.from('order-attachments').getPublicUrl(path);
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+    const { error: insertError } = await supabase.from('repair_messages').insert({
+      repair_id:   selectedRepair.id,
+      sender_id:   adminUser?.id || null,
+      sender_name: adminUser?.full_name || 'Admin',
+      sender_role: 'admin',
+      file_url:    publicUrl,
+      file_name:   file.name,
+      file_type:   isImage ? 'image' : 'file',
+    });
+    if (insertError) { setRepairChatError(insertError.message); } else { await loadRepairChat(selectedRepair.id); }
+    e.target.value = '';
   };
 
   const loadRepairCompletion = async (repairId) => {
@@ -1565,8 +1616,23 @@ export default function AdminDashboard() {
                             ) : repairChatMessages.map((msg, i) => (
                               <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.sender_role === 'admin' ? 'flex-end' : 'flex-start' }}>
                                 <div style={{ maxWidth: '80%', padding: '10px 14px', borderRadius: '12px', background: msg.sender_role === 'admin' ? 'linear-gradient(135deg,var(--blue),var(--red))' : 'rgba(166,113,228,0.1)', color: msg.sender_role === 'admin' ? 'white' : 'var(--navy)' }}>
-                                  <p style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '4px', opacity: 0.8 }}>{msg.sender_name}</p>
-                                  <p style={{ fontSize: '0.86rem', lineHeight: 1.5 }}>{msg.message}</p>
+                                  <p style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '4px', opacity: 0.8 }}>
+                                    <span style={{ color: msg.sender_role === 'admin' ? 'rgba(255,255,255,0.7)' : 'var(--blue)' }}>
+                                      {msg.sender_role === 'admin' ? 'Admin' : msg.sender_role === 'rider' ? 'Rider' : msg.sender_role === 'sales' ? 'Sales' : msg.sender_role.charAt(0).toUpperCase() + msg.sender_role.slice(1)}
+                                      {' | '}
+                                    </span>
+                                    {msg.sender_name}
+                                  </p>
+                                  {msg.file_type === 'image' ? (
+                                    <img src={msg.file_url} alt={msg.file_name} style={{ maxWidth: '100%', borderRadius: '6px', display: 'block' }} />
+                                  ) : msg.file_type === 'file' ? (
+                                    <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
+                                      style={{ color: msg.sender_role === 'admin' ? 'white' : 'var(--blue)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none' }}>
+                                      📎 {msg.file_name}
+                                    </a>
+                                  ) : (
+                                    <p style={{ fontSize: '0.86rem', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
+                                  )}
                                 </div>
                                 <p style={{ fontSize: '0.68rem', color: 'var(--gray)', marginTop: '3px', padding: '0 4px' }}>
                                   {new Date(msg.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
@@ -1574,7 +1640,21 @@ export default function AdminDashboard() {
                               </div>
                             ))}
                           </div>
-                          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(166,113,228,0.1)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+                          {repairChatError && (
+                            <div style={{ padding: '6px 16px', fontSize: '0.75rem', color: '#c0392b', background: 'rgba(192,57,43,0.06)', borderTop: '1px solid rgba(192,57,43,0.15)' }}>
+                              ⚠️ {repairChatError}
+                            </div>
+                          )}
+                          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(166,113,228,0.1)', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                            {/* File attach */}
+                            <input type="file" ref={repairFileRef} onChange={sendRepairFile} style={{ display: 'none' }} />
+                            <button
+                              onClick={() => repairFileRef.current?.click()}
+                              title="Attach file (max 5 MB)"
+                              style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid rgba(166,113,228,0.2)', background: 'rgba(166,113,228,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              <Paperclip size={14} color="var(--blue)" />
+                            </button>
                             <input
                               value={repairChatInput}
                               onChange={e => setRepairChatInput(e.target.value)}
@@ -2071,7 +2151,7 @@ export default function AdminDashboard() {
                   <OrderChat
                     orderId={selected.id}
                     senderName={adminUser?.full_name || 'Admin'}
-                    senderType={adminUser?.role || 'admin'}
+                    senderType="user"
                     senderId={adminUser?.id || null}
                     salesId={selected.assigned_sales_id}
                     riderId={selected.assigned_rider_id}

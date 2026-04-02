@@ -204,6 +204,12 @@ export default function AdminDashboard() {
   const [savingFinancials, setSavingFinancials] = useState(false);
   const [savingDelivery,   setSavingDelivery]   = useState(false);
 
+  // Payment options (shipping orders only)
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [gcashNumber,   setGcashNumber]   = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [savingPayment, setSavingPayment] = useState(false);
+
   // Available riders (for manual assignment)
   const [availableRiders,    setAvailableRiders]    = useState([]);
   const [assigningRider,     setAssigningRider]     = useState(false);
@@ -563,6 +569,9 @@ export default function AdminDashboard() {
     setDrawerTab('details');
     setSalesRepOverride(selected.sales_rep_commission_override != null ? String(selected.sales_rep_commission_override) : '');
     setRiderOverride(selected.rider_commission_override != null ? String(selected.rider_commission_override) : '');
+    setPaymentMethod(selected.payment_method || null);
+    setGcashNumber(selected.gcash_number || '');
+    setPaymentAmount(selected.amount_received != null ? String(selected.amount_received) : '');
     loadBreakdown(selected.id);
     loadRiderLoc(selected);
     loadDeliveryProof(selected.id);
@@ -940,6 +949,21 @@ export default function AdminDashboard() {
       `Commission overrides saved for ${selected.reference_code}`,
       selected.id, selected.reference_code);
     setSavingFinancials(false);
+  };
+
+  const savePaymentDetails = async () => {
+    if (!selected || !paymentMethod) return;
+    setSavingPayment(true);
+    const fields = {
+      payment_method:  paymentMethod,
+      gcash_number:    paymentMethod === 'gcash' ? (gcashNumber.trim() || null) : null,
+      amount_received: paymentAmount.trim() !== '' ? parseFloat(paymentAmount) : null,
+      updated_at:      new Date().toISOString(),
+    };
+    await supabase.from('orders').update(fields).eq('id', selected.id);
+    setOrders(prev => prev.map(o => o.id === selected.id ? { ...o, ...fields } : o));
+    setSelected(prev => ({ ...prev, ...fields }));
+    setSavingPayment(false);
   };
 
   // ── LBC delivery details ──────────────────────────────────
@@ -2358,6 +2382,48 @@ export default function AdminDashboard() {
 
                 return (
                 <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                  {/* Payment Options — shipping orders only */}
+                  {isCourier && (
+                    <div>
+                      <p style={{ ...sectionLabelStyle, marginBottom: '8px' }}>Payment Options</p>
+
+                      {/* Method toggle */}
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        {[{ val: 'gcash', label: '💚 GCash' }, { val: 'cop', label: '💵 Cash on Pickup' }].map(({ val, label }) => {
+                          const active = paymentMethod === val;
+                          return (
+                            <button key={val} onClick={() => setPaymentMethod(val)}
+                              style={{ flex: 1, padding: '9px', fontSize: '0.82rem', fontWeight: active ? 700 : 500, cursor: 'pointer', borderRadius: '8px', border: `1.5px solid ${active ? 'rgba(39,174,96,0.6)' : 'rgba(166,113,228,0.15)'}`, background: active ? 'rgba(39,174,96,0.1)' : 'transparent', color: active ? '#27ae60' : 'var(--gray)', fontFamily: 'Inter, sans-serif', transition: 'all 0.15s' }}
+                            >{label}</button>
+                          );
+                        })}
+                      </div>
+
+                      {paymentMethod && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {paymentMethod === 'gcash' && (
+                            <div>
+                              <label style={{ fontSize: '0.72rem', color: 'var(--gray)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>GCash Number</label>
+                              <input value={gcashNumber} onChange={e => setGcashNumber(e.target.value)}
+                                placeholder="09XXXXXXXXX" className="input-field"
+                                style={{ fontSize: '0.86rem', letterSpacing: '0.04em', width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                          )}
+                          <div>
+                            <label style={{ fontSize: '0.72rem', color: 'var(--gray)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Amount Received (₱)</label>
+                            <input type="number" min="0" step="0.01" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)}
+                              placeholder="0.00" className="input-field"
+                              style={{ fontSize: '0.86rem', width: '100%', boxSizing: 'border-box' }} />
+                          </div>
+                          <button onClick={savePaymentDetails} disabled={savingPayment}
+                            style={{ width: '100%', padding: '10px', background: savingPayment ? 'rgba(39,174,96,0.1)' : 'linear-gradient(135deg,#27ae60,#2ecc71)', color: savingPayment ? 'var(--gray)' : 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.86rem', cursor: savingPayment ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                            {savingPayment ? 'Saving…' : 'Save Payment Details'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Order summary */}
                   {effectiveAmount != null && (

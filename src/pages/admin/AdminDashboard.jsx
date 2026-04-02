@@ -39,8 +39,9 @@ const isStatusBlocked = (order, newStatus) => {
   if (order.status === 'delivered') return true;
   // Cancelled is handled with auth separately — not blocked here
   if (newStatus === 'cancelled') return false;
-  // Out for delivery: only cancellation is allowed (handled above)
-  if (order.status === 'out_for_delivery') return true;
+  // Out for delivery: rider orders are locked here (delivery confirmation comes from the rider).
+  // Shipping orders (lbc/jnt) have no rider flow — admin can still advance the status manually.
+  if (order.status === 'out_for_delivery' && !['lbc', 'jnt'].includes(order.delivery_type)) return true;
   const curIdx = STATUS_ORDER.indexOf(order.status);
   const newIdx = STATUS_ORDER.indexOf(newStatus);
   if (newIdx >= curIdx) return false; // forward always ok

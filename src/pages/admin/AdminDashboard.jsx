@@ -226,6 +226,7 @@ export default function AdminDashboard() {
   const [deleteTarget,       setDeleteTarget]       = useState(null); // order to delete
   const [cancelTarget,       setCancelTarget]       = useState(null); // order pending cancellation
   const [deleteReportTarget, setDeleteReportTarget] = useState(null); // report to delete
+  const [deleteRepairTarget, setDeleteRepairTarget] = useState(null); // repair ticket to delete
   const [newLabel,     setNewLabel]     = useState('');
   const [newAmount,    setNewAmount]    = useState('');
   const [addingItem,   setAddingItem]   = useState(false);
@@ -242,6 +243,7 @@ export default function AdminDashboard() {
   const [tsLoading,     setTsLoading]     = useState(false);
   const [tsSaving,      setTsSaving]      = useState(false);
   const [tsForm,        setTsForm]        = useState({ title: '', description: '', video_url: '' });
+  const [tsError,       setTsError]       = useState('');
 
   // Activity Log state
   const [activityLog,    setActivityLog]   = useState([]);
@@ -271,8 +273,12 @@ export default function AdminDashboard() {
   const [assigningRepairRider, setAssigningRepairRider] = useState(false);
   const [savingOowMsg,         setSavingOowMsg]         = useState(false);
 
+  // Contact messages state
+  const [contactMessages, setContactMessages] = useState([]);
+  const [contactLoading,  setContactLoading]  = useState(false);
+
   // Sales History state
-  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map' | 'warranties'
+  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map' | 'warranties' | 'messages'
   const [reports,        setReports]       = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [genYear,        setGenYear]       = useState(new Date().getFullYear());
@@ -509,17 +515,29 @@ export default function AdminDashboard() {
     const { title, description, video_url } = tsForm;
     if (!title.trim() || !video_url.trim()) return;
     setTsSaving(true);
-    const { data } = await supabase.from('troubleshooting_videos')
-      .insert({ title: title.trim(), description: description.trim() || null, video_url: video_url.trim() })
-      .select().single();
-    if (data) setTsVideos(prev => [...prev, data]);
-    setTsForm({ title: '', description: '', video_url: '' });
-    setTsSaving(false);
+    setTsError('');
+    try {
+      const { error } = await supabase.from('troubleshooting_videos')
+        .insert({ title: title.trim(), description: description.trim() || null, video_url: video_url.trim() });
+      if (error) { setTsError(error.message); return; }
+      setTsForm({ title: '', description: '', video_url: '' });
+      await loadTsVideos();
+    } finally {
+      setTsSaving(false);
+    }
   };
 
   const deleteTsVideo = async (id) => {
     await supabase.from('troubleshooting_videos').delete().eq('id', id);
     setTsVideos(prev => prev.filter(v => v.id !== id));
+  };
+
+  // ── Contact messages ─────────────────────────────────────
+  const loadContactMessages = async () => {
+    setContactLoading(true);
+    const { data } = await supabase.from('contact_messages').select('*').order('created_at', { ascending: false });
+    setContactMessages(data || []);
+    setContactLoading(false);
   };
 
   const logAction = async (action, description, orderId = null, refCode = null) => {
@@ -887,6 +905,21 @@ export default function AdminDashboard() {
     return null;
   };
 
+  const handleDeleteRepair = async (password) => {
+    const email = adminEmail;
+    if (!email) return 'Session expired. Please refresh the page.';
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (authErr) return 'Incorrect password. Deletion cancelled.';
+    // Delete related messages first (FK constraint)
+    await supabase.from('repair_messages').delete().eq('repair_id', deleteRepairTarget.id);
+    const { error: delErr } = await supabase.from('repair_tickets').delete().eq('id', deleteRepairTarget.id);
+    if (delErr) return delErr.message;
+    setRepairs(prev => prev.filter(r => r.id !== deleteRepairTarget.id));
+    if (selectedRepair?.id === deleteRepairTarget.id) setSelectedRepair(null);
+    setDeleteRepairTarget(null);
+    return null;
+  };
+
   const saveFinancials = async () => {
     setSavingFinancials(true);
     const fields = {
@@ -1063,17 +1096,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : view === 'troubleshooting' ? 'Basic Troubleshooting' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : view === 'troubleshooting' ? 'Basic Troubleshooting' : view === 'messages' ? 'Contact Messages' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : view === 'troubleshooting' ? `${tsVideos.length} video${tsVideos.length !== 1 ? 's' : ''} published` : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : view === 'troubleshooting' ? `${tsVideos.length} video${tsVideos.length !== 1 ? 's' : ''} published` : view === 'messages' ? `${contactMessages.length} message${contactMessages.length !== 1 ? 's' : ''}` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }, { id: 'troubleshooting', label: '🔩 Troubleshooting' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }, { id: 'troubleshooting', label: '🔩 Troubleshooting' }, { id: 'messages', label: '✉️ Messages' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); if (id === 'troubleshooting') loadTsVideos(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); if (id === 'troubleshooting') loadTsVideos(); if (id === 'messages') loadContactMessages(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -1086,7 +1119,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats — current month only (hidden on Products/Map/Users/Warranties/Troubleshooting view) */}
-        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && view !== 'troubleshooting' && <>
+        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && view !== 'troubleshooting' && view !== 'messages' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />
@@ -1227,6 +1260,9 @@ export default function AdminDashboard() {
                 >
                   {tsSaving ? 'Adding…' : '+ Add Video'}
                 </button>
+                {tsError && (
+                  <p style={{ fontSize: '0.78rem', color: '#E74C3C', marginTop: '4px' }}>{tsError}</p>
+                )}
               </div>
             </div>
 
@@ -1382,6 +1418,55 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* ── Contact Messages view ── */}
+        {view === 'messages' && (
+          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Inbox</p>
+              <button onClick={loadContactMessages} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'none', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '7px', padding: '6px 12px', fontSize: '0.78rem', color: 'var(--navy)', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
+                <RefreshCw size={12} /> Refresh
+              </button>
+            </div>
+            {contactLoading ? (
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)' }}>
+                <div style={{ width: '28px', height: '28px', border: '3px solid rgba(166,113,228,0.2)', borderTop: '3px solid var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                Loading messages…
+              </div>
+            ) : contactMessages.length === 0 ? (
+              <div style={{ padding: '60px', textAlign: 'center' }}>
+                <p style={{ fontSize: '2.5rem', marginBottom: '12px' }}>✉️</p>
+                <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '4px' }}>No messages yet</p>
+                <p style={{ fontSize: '0.84rem', color: 'var(--gray)' }}>Customer messages from the Contact Us page will appear here.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {contactMessages.map((msg, i) => (
+                  <div key={msg.id} style={{ padding: '18px 22px', borderBottom: i < contactMessages.length - 1 ? '1px solid rgba(166,113,228,0.07)' : 'none' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--blue), var(--red))', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <span style={{ color: 'white', fontSize: '0.88rem', fontWeight: 700 }}>{(msg.name || '?')[0].toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.9rem', marginBottom: '1px' }}>{msg.name}</p>
+                          <div style={{ display: 'flex', gap: '12px' }}>
+                            {msg.email && <p style={{ fontSize: '0.75rem', color: 'var(--gray)' }}>{msg.email}</p>}
+                            {msg.phone && <p style={{ fontSize: '0.75rem', color: 'var(--gray)' }}>{msg.phone}</p>}
+                          </div>
+                        </div>
+                      </div>
+                      <p style={{ fontSize: '0.72rem', color: 'var(--gray)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {new Date(msg.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
+                      </p>
+                    </div>
+                    <p style={{ fontSize: '0.88rem', color: 'var(--navy)', lineHeight: 1.65, paddingLeft: '46px' }}>{msg.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Warranties view ── */}
         {view === 'warranties' && (() => {
           const REPAIR_STATUSES = ['pending', 'confirmed', 'out_for_repair', 'completed'];
@@ -1470,10 +1555,16 @@ export default function AdminDashboard() {
                                 {new Date(r.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}
                               </td>
                               <td style={{ padding: '13px 14px' }} onClick={e => e.stopPropagation()}>
-                                <button onClick={() => { setSelectedRepair(r); setRepairDrawerTab('details'); setRepairNote(r.note || ''); setRepairChatMessages([]); setRepairCompletion(null); }}
-                                  style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                                  View
-                                </button>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <button onClick={() => { setSelectedRepair(r); setRepairDrawerTab('details'); setRepairNote(r.note || ''); setRepairChatMessages([]); setRepairCompletion(null); }}
+                                    style={{ fontSize: '0.78rem', color: 'var(--blue)', fontWeight: 600, background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                    View
+                                  </button>
+                                  <button onClick={() => setDeleteRepairTarget(r)}
+                                    style={{ fontSize: '0.78rem', color: '#e74c3c', fontWeight: 600, background: 'rgba(231,76,60,0.08)', border: '1px solid rgba(231,76,60,0.2)', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                    Delete
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -2473,6 +2564,14 @@ export default function AdminDashboard() {
         />
       )}
 
+      {deleteRepairTarget && (
+        <DeleteRepairModal
+          repair={deleteRepairTarget}
+          onClose={() => setDeleteRepairTarget(null)}
+          onConfirm={handleDeleteRepair}
+        />
+      )}
+
       {showProfileModal && (
         <ProfileModal
           user={adminUser}
@@ -2947,6 +3046,66 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
             <button type="submit" disabled={deleting || !password.trim()}
               style={{ flex: 1.5, padding: '11px', border: 'none', borderRadius: '9px', background: deleting || !password.trim() ? 'rgba(231,76,60,0.15)' : '#E74C3C', color: deleting || !password.trim() ? 'rgba(231,76,60,0.4)' : 'white', fontWeight: 700, fontSize: '0.88rem', cursor: deleting || !password.trim() ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
               {deleting ? 'Verifying…' : 'Delete Order'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </>
+  );
+}
+
+// ── Delete repair ticket modal ─────────────────────────────────
+function DeleteRepairModal({ repair, onClose, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password.trim()) { setError('Password is required.'); return; }
+    setDeleting(true);
+    setError('');
+    const err = await onConfirm(password);
+    if (err) { setError(err); setDeleting(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(17,7,24,0.6)', backdropFilter: 'blur(4px)', zIndex: 400 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '440px', background: 'white', borderRadius: '16px', boxShadow: '0 20px 60px rgba(17,7,24,0.25)', zIndex: 401, overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(231,76,60,0.12)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(231,76,60,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertTriangle size={18} color="#E74C3C" />
+          </div>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--navy)' }}>Delete Repair Ticket</p>
+            <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>{repair.reference_code} · {repair.customer_name}</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--gray)' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '0.86rem', color: 'var(--gray)', lineHeight: 1.6 }}>
+            This will <strong style={{ color: '#E74C3C' }}>permanently delete</strong> this repair ticket and all related messages. This cannot be undone. Enter your admin password to confirm.
+          </p>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.05em', marginBottom: '6px' }}>ADMIN PASSWORD</label>
+            <input type="password" autoFocus value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${error ? '#E74C3C' : 'rgba(166,113,228,0.2)'}`, borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'Inter,sans-serif', outline: 'none', color: 'var(--navy)', boxSizing: 'border-box' }}
+            />
+            {error && <p style={{ fontSize: '0.78rem', color: '#E74C3C', marginTop: '5px' }}>{error}</p>}
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" onClick={onClose} disabled={deleting}
+              style={{ flex: 1, padding: '11px', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '9px', background: 'none', color: 'var(--gray)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={deleting || !password.trim()}
+              style={{ flex: 1.5, padding: '11px', border: 'none', borderRadius: '9px', background: deleting || !password.trim() ? 'rgba(231,76,60,0.15)' : '#E74C3C', color: deleting || !password.trim() ? 'rgba(231,76,60,0.4)' : 'white', fontWeight: 700, fontSize: '0.88rem', cursor: deleting || !password.trim() ? 'not-allowed' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {deleting ? 'Deleting…' : 'Delete Ticket'}
             </button>
           </div>
         </form>

@@ -12,12 +12,14 @@ export default function ProductDetail() {
   const [related,   setRelated]   = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [imgIndex,  setImgIndex]  = useState(0);
+  const [variantIndex, setVariantIndex] = useState(0);
 
   useEffect(() => {
     window.scrollTo(0, 0);
     const load = async () => {
       setLoading(true);
       setImgIndex(0);
+      setVariantIndex(0);
 
       const { data } = await supabase
         .from('products').select('*').eq('id', id).single();
@@ -67,6 +69,21 @@ export default function ProductDetail() {
   const inclusions = (product.inclusions || []).map(i => typeof i === 'string' ? {name:i, price:0} : i);
   const hasImages = images.length > 0;
 
+  const variants = product.variants || [];
+  const hasVariants = variants.length > 0;
+  const activeVariant = hasVariants ? variants[variantIndex] : null;
+  const displayImages = hasVariants ? variants.map(v => v.image).filter(Boolean) : images;
+  const activeImage = hasVariants ? (activeVariant?.image || '') : (images[imgIndex] || '');
+  const activeInclusions = hasVariants
+    ? (activeVariant?.inclusions || []).map(i => ({ name: i, price: 0 }))
+    : inclusions;
+  const activePrice = activeVariant?.price;
+  const activeOriginalPrice = activeVariant?.original_price;
+  const activeLabel = activeVariant?.label;
+  const discountPct = activePrice && activeOriginalPrice
+    ? Math.round((1 - activePrice / activeOriginalPrice) * 100)
+    : null;
+
   const prevImg = () => setImgIndex(i => (i - 1 + images.length) % images.length);
   const nextImg = () => setImgIndex(i => (i + 1) % images.length);
 
@@ -105,20 +122,20 @@ export default function ProductDetail() {
               {hasImages ? (
                 <>
                   <img
-                    src={images[imgIndex]}
-                    alt={`${product.name} ${imgIndex + 1}`}
+                    src={activeImage}
+                    alt={product.name}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', animation: 'fadeIn 0.3s ease' }}
                   />
-                  {images.length > 1 && (
+                  {(hasVariants ? displayImages.length > 1 : images.length > 1) && (
                     <>
-                      <button onClick={prevImg}
+                      <button onClick={() => hasVariants ? setVariantIndex(i => (i - 1 + displayImages.length) % displayImages.length) : prevImg()}
                         style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(17,7,24,0.7)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--blue)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(17,7,24,0.7)'}
                       >
                         <ChevronLeft size={18} />
                       </button>
-                      <button onClick={nextImg}
+                      <button onClick={() => hasVariants ? setVariantIndex(i => (i + 1) % displayImages.length) : nextImg()}
                         style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(17,7,24,0.7)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--blue)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(17,7,24,0.7)'}
@@ -127,9 +144,9 @@ export default function ProductDetail() {
                       </button>
                       {/* Dot indicators */}
                       <div style={{ position: 'absolute', bottom: '12px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                        {images.map((_, i) => (
-                          <button key={i} onClick={() => setImgIndex(i)}
-                            style={{ width: imgIndex === i ? '20px' : '7px', height: '7px', borderRadius: '4px', background: imgIndex === i ? 'var(--blue)' : 'rgba(255,255,255,0.3)', border: 'none', cursor: 'pointer', transition: 'all 0.2s', padding: 0 }}
+                        {(hasVariants ? displayImages : images).map((_, i) => (
+                          <button key={i} onClick={() => hasVariants ? setVariantIndex(i) : setImgIndex(i)}
+                            style={{ width: (hasVariants ? variantIndex : imgIndex) === i ? '20px' : '7px', height: '7px', borderRadius: '4px', background: (hasVariants ? variantIndex : imgIndex) === i ? 'var(--blue)' : 'rgba(255,255,255,0.3)', border: 'none', cursor: 'pointer', transition: 'all 0.2s', padding: 0 }}
                           />
                         ))}
                       </div>
@@ -152,15 +169,27 @@ export default function ProductDetail() {
             </div>
 
             {/* Thumbnail strip */}
-            {hasImages && images.length > 1 && (
+            {(hasVariants ? displayImages.length > 1 : (hasImages && images.length > 1)) && (
               <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                {images.map((img, i) => (
-                  <div key={i} onClick={() => setImgIndex(i)}
-                    style={{ width: '72px', height: '72px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', border: `2px solid ${imgIndex === i ? 'var(--blue)' : 'transparent'}`, transition: 'border-color 0.2s', opacity: imgIndex === i ? 1 : 0.6 }}
-                  >
-                    <img src={img} alt={`thumb ${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                ))}
+                {(hasVariants ? variants : images.map((img, i) => ({ image: img, label: `Image ${i + 1}` }))).map((item, i) => {
+                  const thumbUrl = hasVariants ? item.image : item.image;
+                  const isActive = hasVariants ? variantIndex === i : imgIndex === i;
+                  return (
+                    <div key={i}
+                      onClick={() => hasVariants ? setVariantIndex(i) : setImgIndex(i)}
+                      style={{ flexShrink: 0, borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', border: `2px solid ${isActive ? 'var(--blue)' : 'transparent'}`, transition: 'all 0.2s', opacity: isActive ? 1 : 0.65 }}
+                    >
+                      <div style={{ width: '72px', height: '72px', background: 'var(--navy)' }}>
+                        {thumbUrl && <img src={thumbUrl} alt={`thumb ${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      </div>
+                      {hasVariants && item.label && (
+                        <div style={{ fontSize: '0.60rem', fontWeight: 600, color: isActive ? 'var(--blue)' : 'var(--gray)', textAlign: 'center', padding: '3px 4px', lineHeight: 1.2, maxWidth: '72px', wordBreak: 'break-word' }}>
+                          {item.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -168,11 +197,29 @@ export default function ProductDetail() {
           {/* RIGHT — Product info */}
           <div>
             {/* Price */}
-            {product.price_range && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, rgba(166,113,228,0.15), rgba(254,120,227,0.10))', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '20px', padding: '5px 14px', marginBottom: '14px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, background: 'linear-gradient(135deg, var(--blue), var(--red))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '0.06em' }}>
-                  {product.price_range}
-                </span>
+            {(activePrice || product.price_range) && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                {activePrice ? (
+                  <>
+                    <div style={{ background: 'linear-gradient(135deg, rgba(166,113,228,0.15), rgba(254,120,227,0.10))', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '20px', padding: '5px 14px' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: 800, background: 'linear-gradient(135deg, var(--blue), var(--red))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                        ₱{Number(activePrice).toLocaleString()}
+                      </span>
+                    </div>
+                    {activeOriginalPrice && (
+                      <span style={{ fontSize: '0.88rem', color: 'var(--gray)', textDecoration: 'line-through' }}>₱{Number(activeOriginalPrice).toLocaleString()}</span>
+                    )}
+                    {discountPct > 0 && (
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'white', background: '#E74C3C', padding: '3px 8px', borderRadius: '12px' }}>{discountPct}% OFF</span>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ background: 'linear-gradient(135deg, rgba(166,113,228,0.15), rgba(254,120,227,0.10))', border: '1px solid rgba(166,113,228,0.25)', borderRadius: '20px', padding: '5px 14px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, background: 'linear-gradient(135deg, var(--blue), var(--red))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '0.06em' }}>
+                      {product.price_range}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -184,6 +231,12 @@ export default function ProductDetail() {
               <p style={{ fontSize: '1rem', color: 'var(--blue)', fontWeight: 600, marginBottom: '14px' }}>
                 {product.tagline}
               </p>
+            )}
+
+            {activeLabel && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(166,113,228,0.08)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', padding: '4px 12px', marginBottom: '12px', fontSize: '0.82rem', fontWeight: 600, color: 'var(--blue)' }}>
+                {activeLabel}
+              </div>
             )}
 
             <p style={{ fontSize: '0.95rem', color: 'var(--gray)', lineHeight: 1.75, marginBottom: '24px' }}>
@@ -208,13 +261,13 @@ export default function ProductDetail() {
             )}
 
             {/* Inclusions */}
-            {inclusions.length > 0 && (
+            {activeInclusions.length > 0 && (
               <div style={{ marginBottom: '28px' }}>
                 <p style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--navy)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '12px' }}>
                   What's in the Box
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {inclusions.map((item, i) => (
+                  {activeInclusions.map((item, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'rgba(166,113,228,0.04)', borderRadius: '8px', border: '1px solid rgba(166,113,228,0.1)' }}>
                       <span style={{ fontSize: '13px', flexShrink: 0 }}>📦</span>
                       <span style={{ fontSize: '0.88rem', color: 'var(--navy)', flex: 1 }}>{item.name}</span>
@@ -231,7 +284,7 @@ export default function ProductDetail() {
             {/* CTA buttons */}
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button
-                onClick={() => navigate('/order', { state: { productId: product.id, productName: product.name } })}
+                onClick={() => navigate('/order', { state: { productId: product.id, productName: product.name, variantLabel: activeLabel || null, variantPrice: activePrice || null } })}
                 style={{ flex: 1, minWidth: '160px', background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontWeight: 700, fontSize: '0.92rem', padding: '13px 24px', border: 'none', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 20px rgba(166,113,228,0.3)' }}
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(166,113,228,0.4)'; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(166,113,228,0.3)'; }}

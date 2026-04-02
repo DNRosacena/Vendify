@@ -1,13 +1,29 @@
 import { useState } from 'react';
 import { Phone, Mail, MapPin, Send, Facebook } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export default function Contact() {
-  const [form, setForm]   = useState({ name: '', email: '', phone: '', message: '' });
-  const [sent, setSent]   = useState(false);
+  const [form, setForm]       = useState({ name: '', email: '', phone: '', message: '' });
+  const [sent, setSent]       = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError]     = useState('');
 
-  const handleSubmit = () => {
-    if (!form.name || !form.message) return;
-    setSent(true);
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.message.trim()) return;
+    setSending(true);
+    setError('');
+    try {
+      const { error: dbErr } = await supabase.from('contact_messages').insert({
+        name:    form.name.trim(),
+        email:   form.email.trim()   || null,
+        phone:   form.phone.trim()   || null,
+        message: form.message.trim(),
+      });
+      if (dbErr) { setError(dbErr.message); return; }
+      setSent(true);
+    } finally {
+      setSending(false);
+    }
   };
 
   const contactItems = [
@@ -103,9 +119,10 @@ export default function Contact() {
                   onChange={e => setForm(x => ({ ...x, message: e.target.value }))}
                 />
               </div>
-              <button className="btn-primary" onClick={handleSubmit} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}>
-                <Send size={15} /> Send Message / Ipadala
+              <button className="btn-primary" onClick={handleSubmit} disabled={sending} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', opacity: sending ? 0.7 : 1 }}>
+                <Send size={15} /> {sending ? 'Sending…' : 'Send Message / Ipadala'}
               </button>
+              {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: '4px' }}>{error}</p>}
             </div>
           )}
         </div>

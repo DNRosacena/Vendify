@@ -48,17 +48,35 @@ export default function ProductCard({ product, index = 0 }) {
         )}
 
         {/* Price badge */}
-        {product.price_range && (
-          <div style={{
-            position: 'absolute', top: '12px', right: '12px',
-            background: 'linear-gradient(135deg, var(--blue), var(--red))',
-            color: 'white', padding: '4px 10px', borderRadius: '20px',
-            fontSize: '0.70rem', fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: '4px',
-          }}>
-            <Tag size={10} /> {product.price_range}
-          </div>
-        )}
+        {(() => {
+          const firstVariant = (product.variants || [])[0];
+          const price = firstVariant?.price;
+          const origPrice = firstVariant?.original_price;
+          if (price) {
+            const discountPct = origPrice ? Math.round((1 - price / origPrice) * 100) : null;
+            return (
+              <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                {discountPct > 0 && (
+                  <div style={{ background: '#E74C3C', color: 'white', padding: '2px 7px', borderRadius: '12px', fontSize: '0.60rem', fontWeight: 700 }}>
+                    {discountPct}% OFF
+                  </div>
+                )}
+                <div style={{ background: 'rgba(17,7,24,0.75)', backdropFilter: 'blur(8px)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
+                  {origPrice && <span style={{ fontSize: '0.60rem', color: 'rgba(255,255,255,0.45)', textDecoration: 'line-through' }}>₱{Number(origPrice).toLocaleString()}</span>}
+                  <span style={{ fontSize: '0.70rem', fontWeight: 700, color: 'white' }}>₱{Number(price).toLocaleString()}</span>
+                </div>
+              </div>
+            );
+          }
+          if (product.price_range) {
+            return (
+              <div style={{ position: 'absolute', top: '12px', right: '12px', background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', padding: '4px 10px', borderRadius: '20px', fontSize: '0.70rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Tag size={10} /> {product.price_range}
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {/* Content */}

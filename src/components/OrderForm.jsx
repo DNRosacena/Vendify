@@ -10,6 +10,7 @@ export default function OrderForm() {
   const location  = useLocation();
   const preSelect = location.state?.productId || '';
   const preName   = location.state?.productName || '';
+  const preVariant = location.state?.variantLabel || '';
 
   const [products,  setProducts]  = useState([]);
   const [salesReps, setSalesReps] = useState([]);
@@ -23,6 +24,7 @@ export default function OrderForm() {
     sales_rep_id:    '',
     product_id:      preSelect,
     product_name:    preName,
+    product_variant: preVariant,
     note:            '',
     referral_code:   '',
   });
@@ -70,6 +72,7 @@ export default function OrderForm() {
       assigned_sales_id: form.sales_rep_id || null,
       product_id:        form.product_id,
       product_name:      selectedProduct?.name || form.product_name,
+      product_variant:   form.product_variant || null,
       note:              form.note.trim(),
       referral_code:     (hasReferral && form.referral_code.trim()) ? form.referral_code.trim() : null,
       status:            'pending',

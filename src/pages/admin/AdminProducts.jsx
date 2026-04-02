@@ -154,9 +154,14 @@ function ProductFormModal({ product, onClose, onSaved }) {
   const [description, setDescription] = useState(product?.description || '');
   const [category,    setCategory]    = useState(product?.category    || '');
   const [priceRange,  setPriceRange]  = useState(product?.price_range || '');
-  const [images,      setImages]      = useState(product?.images      || []);
-  const [inclusions,  setInclusions]  = useState(
-    (product?.inclusions || []).map(i => typeof i === 'string' ? {name:i, price:0} : i)
+  const [variants, setVariants] = useState(
+    (product?.variants || []).map(v => ({
+      image:          v.image          || '',
+      label:          v.label          || '',
+      price:          v.price     != null ? String(v.price)          : '',
+      original_price: v.original_price != null ? String(v.original_price) : '',
+      inclusions:     Array.isArray(v.inclusions) ? v.inclusions : [],
+    }))
   );
   const [features,    setFeatures]    = useState(product?.features    || []);
   const [warranty,    setWarranty]    = useState(product?.warranty || '');
@@ -170,49 +175,37 @@ function ProductFormModal({ product, onClose, onSaved }) {
   const [deliveryFee,    setDeliveryFee]    = useState(product?.delivery_fee        != null ? String(product.delivery_fee)        : '');
 
   const [saving,       setSaving]       = useState(false);
-  const [uploadingImg, setUploadingImg] = useState(false);
   const [error,        setError]        = useState('');
 
   // Add-row input states
-  const [newInclusionName,  setNewInclusionName]  = useState('');
-  const [newInclusionPrice, setNewInclusionPrice] = useState('');
   const [newFeature,   setNewFeature]   = useState('');
   const [newSpecKey,   setNewSpecKey]   = useState('');
   const [newSpecVal,   setNewSpecVal]   = useState('');
 
-  const fileInputRef = useRef();
+  const variantImgRef       = useRef();
+  const variantImgTargetRef = useRef(null);
+  const [uploadingVariantImg, setUploadingVariantImg] = useState(false);
 
-  const handleImageUpload = async (e) => {
+  const handleVariantImageUpload = async (e, variantIdx) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    setUploadingImg(true);
+    setUploadingVariantImg(true);
     try {
       const tmpId = product?.id || `tmp_${Date.now()}`;
-      const urls  = [];
-      for (const file of files) {
-        const ext  = file.name.split('.').pop().toLowerCase();
-        const path = `${tmpId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: upErr } = await supabase.storage.from('product-images').upload(path, file, { contentType: `image/${ext}`, upsert: true });
-        if (upErr) continue;
+      const file  = files[0];
+      const ext   = file.name.split('.').pop().toLowerCase();
+      const path  = `${tmpId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('product-images').upload(path, file, { contentType: `image/${ext}`, upsert: true });
+      if (!upErr) {
         const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(path);
-        if (urlData?.publicUrl) urls.push(urlData.publicUrl);
+        if (urlData?.publicUrl) {
+          setVariants(prev => prev.map((v, i) => i === variantIdx ? { ...v, image: urlData.publicUrl } : v));
+        }
       }
-      setImages(prev => [...prev, ...urls]);
     } finally {
-      setUploadingImg(false);
+      setUploadingVariantImg(false);
       e.target.value = '';
     }
-  };
-
-  const removeImage = (idx) => setImages(prev => prev.filter((_, i) => i !== idx));
-
-  const addInclusion = () => {
-    const n = newInclusionName.trim();
-    if (!n) return;
-    const p = parseFloat(newInclusionPrice) || 0;
-    setInclusions(prev => [...prev, { name: n, price: p }]);
-    setNewInclusionName('');
-    setNewInclusionPrice('');
   };
 
   const addFeature = () => {
@@ -235,15 +228,30 @@ function ProductFormModal({ product, onClose, onSaved }) {
     setError('');
 
     const specsObj = specs.reduce((acc, { k, v }) => { acc[k] = v; return acc; }, {});
+    const cleanVariants = variants.map(v => ({
+      image:          v.image || null,
+      label:          v.label.trim(),
+      price:          parseFloat(v.price)          || 0,
+      original_price: v.original_price ? (parseFloat(v.original_price) || null) : null,
+      inclusions:     v.inclusions,
+    }));
+    const variantImages = cleanVariants.map(v => v.image).filter(Boolean);
+    const prices = cleanVariants.map(v => v.price).filter(p => p > 0);
+    const autoPriceRange = prices.length === 0
+      ? (priceRange.trim() || null)
+      : prices.length === 1
+        ? `₱${prices[0].toLocaleString()}`
+        : `₱${Math.min(...prices).toLocaleString()} – ₱${Math.max(...prices).toLocaleString()}`;
     const fields = {
       name:                name.trim(),
       tagline:             tagline.trim()     || null,
       description:         description.trim() || null,
       category:            category           || null,
-      price_range:         priceRange.trim()  || null,
-      image_url:           images[0]          || null,
-      images,
-      inclusions,
+      price_range:         autoPriceRange,
+      image_url:           variantImages[0]   || null,
+      images:              variantImages,
+      inclusions:          cleanVariants[0]?.inclusions?.map(i => ({ name: i, price: 0 })) || [],
+      variants:            cleanVariants,
       features,
       warranty:            warranty.trim() || null,
       specs:               specsObj,
@@ -321,7 +329,7 @@ function ProductFormModal({ product, onClose, onSaved }) {
                   <ChevronDown size={13} color="var(--gray)" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                 </div>
               </Field>
-              <Field label="Price Range">
+              <Field label="Price Range (fallback if no variants)">
                 <input value={priceRange} onChange={e => setPriceRange(e.target.value)} placeholder="e.g. ₱12,000 – ₱15,000" style={inputStyle} />
               </Field>
             </div>
@@ -353,67 +361,87 @@ function ProductFormModal({ product, onClose, onSaved }) {
             </div>
           </Section>
 
-          {/* Images */}
-          <Section title="Images">
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
-              {images.map((url, i) => (
-                <div key={i} style={{ position: 'relative', width: '88px', height: '88px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(166,113,228,0.2)', flexShrink: 0 }}>
-                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  {i === 0 && (
-                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(166,113,228,0.85)', color: 'white', fontSize: '0.55rem', fontWeight: 700, textAlign: 'center', padding: '2px', letterSpacing: '0.05em' }}>COVER</div>
-                  )}
-                  <button onClick={() => removeImage(i)}
-                    style={{ position: 'absolute', top: '3px', right: '3px', width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(231,76,60,0.85)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <X size={10} color="white" />
-                  </button>
+          {/* Variants */}
+          <Section title="Variants" subtitle="Each variant has its own image, price, and parts list. Price range is auto-computed.">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {variants.map((v, idx) => (
+                <div key={idx} style={{ border: '1px solid rgba(166,113,228,0.18)', borderRadius: '10px', padding: '12px', background: 'rgba(166,113,228,0.02)' }}>
+                  {/* Image + Label + Delete */}
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <div
+                      onClick={() => { variantImgTargetRef.current = idx; variantImgRef.current?.click(); }}
+                      style={{ width: '72px', height: '72px', borderRadius: '8px', overflow: 'hidden', border: '1px dashed rgba(166,113,228,0.35)', flexShrink: 0, cursor: 'pointer', background: 'rgba(166,113,228,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+                    >
+                      {v.image ? (
+                        <img src={v.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : uploadingVariantImg && variantImgTargetRef.current === idx ? (
+                        <div style={{ width: '20px', height: '20px', border: '2px solid rgba(166,113,228,0.2)', borderTop: '2px solid var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                      ) : (
+                        <>
+                          <Upload size={16} color="rgba(166,113,228,0.5)" />
+                          <span style={{ fontSize: '0.58rem', color: 'var(--gray)', marginTop: '3px' }}>Image</span>
+                        </>
+                      )}
+                      {idx === 0 && v.image && (
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(166,113,228,0.85)', color: 'white', fontSize: '0.50rem', fontWeight: 700, textAlign: 'center', padding: '2px', letterSpacing: '0.05em' }}>COVER</div>
+                      )}
+                    </div>
+                    <input
+                      value={v.label}
+                      onChange={e => setVariants(prev => prev.map((x, i) => i === idx ? { ...x, label: e.target.value } : x))}
+                      placeholder={`Variant ${idx + 1} label`}
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                    <button onClick={() => setVariants(prev => prev.filter((_, i) => i !== idx))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'flex-start', color: 'var(--gray)', flexShrink: 0 }}>
+                      <X size={15} />
+                    </button>
+                  </div>
+                  {/* Prices */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, color: 'var(--gray)', marginBottom: '3px', letterSpacing: '0.04em' }}>PRICE (₱) *</label>
+                      <input type="number" min="0" value={v.price}
+                        onChange={e => setVariants(prev => prev.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                        placeholder="e.g. 19000" style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, color: 'var(--gray)', marginBottom: '3px', letterSpacing: '0.04em' }}>ORIGINAL PRICE (strikethrough)</label>
+                      <input type="number" min="0" value={v.original_price}
+                        onChange={e => setVariants(prev => prev.map((x, i) => i === idx ? { ...x, original_price: e.target.value } : x))}
+                        placeholder="Optional" style={inputStyle} />
+                    </div>
+                  </div>
+                  {/* Inclusions */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, color: 'var(--gray)', marginBottom: '5px', letterSpacing: '0.04em' }}>PARTS / INCLUSIONS</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '6px' }}>
+                      {v.inclusions.map((inc, j) => (
+                        <div key={j} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(166,113,228,0.05)', borderRadius: '6px', padding: '5px 10px' }}>
+                          <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--navy)' }}>• {inc}</span>
+                          <button onClick={() => setVariants(prev => prev.map((x, i) => i === idx ? { ...x, inclusions: x.inclusions.filter((_, k) => k !== j) } : x))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex' }}>
+                            <X size={11} color="var(--gray)" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <VariantInclusionRow onAdd={newInc => {
+                      if (!newInc.trim()) return;
+                      setVariants(prev => prev.map((x, i) => i === idx ? { ...x, inclusions: [...x.inclusions, newInc.trim()] } : x));
+                    }} />
+                  </div>
                 </div>
               ))}
-              <button onClick={() => fileInputRef.current?.click()} disabled={uploadingImg}
-                style={{ width: '88px', height: '88px', borderRadius: '8px', border: '2px dashed rgba(166,113,228,0.3)', background: 'rgba(166,113,228,0.04)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: uploadingImg ? 0.5 : 1 }}>
-                {uploadingImg ? (
-                  <div style={{ width: '20px', height: '20px', border: '2px solid rgba(166,113,228,0.2)', borderTop: '2px solid var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                ) : (
-                  <>
-                    <Upload size={18} color="rgba(166,113,228,0.6)" />
-                    <span style={{ fontSize: '0.6rem', color: 'var(--gray)', fontWeight: 600 }}>Upload</span>
-                  </>
-                )}
-              </button>
             </div>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageUpload} style={{ display: 'none' }} />
-            <p style={{ fontSize: '0.74rem', color: 'var(--gray)' }}>First image is used as the cover photo. Drag to reorder — upload multiple at once.</p>
-          </Section>
-
-          {/* Inclusions */}
-          <Section title="Inclusions" subtitle="Items bundled with the product (price 0 = included free)">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
-              {inclusions.map((item, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(166,113,228,0.05)', borderRadius: '8px', padding: '8px 12px' }}>
-                  <span style={{ flex: 1, fontSize: '0.86rem', color: 'var(--navy)' }}>• {item.name}</span>
-                  {item.price > 0
-                    ? <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#22a85a', background: 'rgba(34,168,90,0.1)', padding: '2px 8px', borderRadius: '10px', flexShrink: 0 }}>+₱{Number(item.price).toLocaleString()}</span>
-                    : <span style={{ fontSize: '0.75rem', color: 'var(--gray)', flexShrink: 0 }}>Free</span>
-                  }
-                  <button onClick={() => setInclusions(prev => prev.filter((_, j) => j !== i))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex' }}>
-                    <X size={13} color="var(--gray)" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input value={newInclusionName} onChange={e => setNewInclusionName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclusion())}
-                placeholder="e.g. Mounting bracket" style={{ ...inputStyle, flex: 2 }} />
-              <input value={newInclusionPrice} onChange={e => setNewInclusionPrice(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclusion())}
-                type="number" min="0" placeholder="Price (0=free)"
-                style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addInclusion}
-                style={{ padding: '9px 14px', background: 'rgba(166,113,228,0.1)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <Plus size={16} color="var(--blue)" />
-              </button>
-            </div>
+            <button
+              onClick={() => setVariants(prev => [...prev, { image: '', label: '', price: '', original_price: '', inclusions: [] }])}
+              style={{ marginTop: variants.length ? '8px' : 0, width: '100%', padding: '10px', border: '2px dashed rgba(166,113,228,0.25)', borderRadius: '10px', background: 'rgba(166,113,228,0.03)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: 'var(--gray)', fontSize: '0.82rem', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
+              <Plus size={15} color="var(--blue)" /> Add Variant
+            </button>
+            <input ref={variantImgRef} type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => variantImgTargetRef.current !== null && handleVariantImageUpload(e, variantImgTargetRef.current)} />
+            <p style={{ fontSize: '0.74rem', color: 'var(--gray)', marginTop: '4px' }}>First variant's image becomes the cover. Price range is auto-computed from variants.</p>
           </Section>
 
           {/* Features */}
@@ -485,6 +513,25 @@ function ProductFormModal({ product, onClose, onSaved }) {
         </div>
       </div>
     </>
+  );
+}
+
+function VariantInclusionRow({ onAdd }) {
+  const [val, setVal] = useState('');
+  return (
+    <div style={{ display: 'flex', gap: '6px' }}>
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAdd(val); setVal(''); } }}
+        placeholder="e.g. Universal Coin Slot"
+        style={{ ...inputStyle, flex: 1, fontSize: '0.82rem' }}
+      />
+      <button onClick={() => { onAdd(val); setVal(''); }}
+        style={{ padding: '9px 12px', background: 'rgba(166,113,228,0.1)', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+        <Plus size={14} color="var(--blue)" />
+      </button>
+    </div>
   );
 }
 

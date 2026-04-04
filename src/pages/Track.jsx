@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../lib/utils';
 import OrderChat from '../components/OrderChat';
+import FeedbackForm, { FeedbackThankYou } from '../components/FeedbackForm';
 
 // Fix leaflet default marker icons with Vite
 delete L.Icon.Default.prototype._getIconUrl;
@@ -56,6 +57,7 @@ export default function Track() {
   const [searched,     setSearched]     = useState(false);
   const [riderLoc,     setRiderLoc]     = useState(null);
   const [chatOpen,     setChatOpen]     = useState(false);
+  const [feedbackDone, setFeedbackDone] = useState(null); // null=checking, false=pending, true=submitted
   const channelRef      = useRef(null);
   const orderChannelRef = useRef(null);
 
@@ -113,6 +115,17 @@ export default function Track() {
       setError('No order found with that reference code. Please check and try again.');
     } else {
       setOrder(data);
+      setFeedbackDone(null);
+
+      // Check if feedback already submitted for this order
+      if (data.status === 'delivered') {
+        supabase
+          .from('feedbacks')
+          .select('id')
+          .eq('order_id', data.id)
+          .maybeSingle()
+          .then(({ data: fb }) => setFeedbackDone(!!fb));
+      }
 
       // Subscribe to live order status changes
       orderChannelRef.current = supabase
@@ -443,10 +456,29 @@ export default function Track() {
               )}
             </div>
 
+            {/* ── Feedback panel (delivered orders only) ── */}
+            {order.status === 'delivered' && (
+              <div style={{ background: 'white', borderRadius: '14px', padding: '28px', marginTop: '16px', boxShadow: '0 4px 20px rgba(44,62,80,0.06)', border: '1px solid rgba(166,113,228,0.12)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                  <Star size={18} color="var(--blue)" />
+                  <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--navy)', margin: 0 }}>
+                    Rate Our Service / I-rate ang Aming Serbisyo
+                  </h3>
+                </div>
+                {feedbackDone === null ? (
+                  <p style={{ color: 'var(--gray)', fontSize: '0.85rem' }}>Checking feedback status…</p>
+                ) : feedbackDone ? (
+                  <FeedbackThankYou />
+                ) : (
+                  <FeedbackForm order={order} onSubmitted={() => setFeedbackDone(true)} />
+                )}
+              </div>
+            )}
+
             {/* Track another */}
             {order.status === 'delivered' && (
               <div style={{ marginTop: '16px', textAlign: 'center' }}>
-                <button onClick={() => { setOrder(null); setRefCode(''); setSearched(false); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                <button onClick={() => { setOrder(null); setRefCode(''); setSearched(false); setFeedbackDone(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                   Track another order <ChevronRight size={14} />
                 </button>
               </div>

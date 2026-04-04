@@ -10,6 +10,7 @@ import Contact from './pages/Contact';
 import Troubleshooting from './pages/Troubleshooting';
 import Track from './pages/Track';
 import Warranty from './pages/Warranty';
+import Feedback from './pages/Feedback';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/track" element={<PublicLayout><Track /></PublicLayout>} />
         <Route path="/warranty" element={<PublicLayout><Warranty /></PublicLayout>} />
+        <Route path="/feedback" element={<PublicLayout><Feedback /></PublicLayout>} />
 
         {/* Admin routes — no Navbar/Footer */}
         <Route path="/admin/login" element={<AdminLogin />} />

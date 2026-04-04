@@ -284,8 +284,12 @@ export default function AdminDashboard() {
   const [contactMessages, setContactMessages] = useState([]);
   const [contactLoading,  setContactLoading]  = useState(false);
 
+  // Feedback state
+  const [feedbacks,        setFeedbacks]        = useState([]);
+  const [feedbacksLoading, setFeedbacksLoading] = useState(false);
+
   // Sales History state
-  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map' | 'warranties' | 'messages'
+  const [view,           setView]          = useState('orders'); // 'orders' | 'history' | 'products' | 'activity' | 'users' | 'map' | 'warranties' | 'messages' | 'feedback'
   const [reports,        setReports]       = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [genYear,        setGenYear]       = useState(new Date().getFullYear());
@@ -550,6 +554,16 @@ export default function AdminDashboard() {
   const deleteContactMessage = async (id) => {
     await supabase.from('contact_messages').delete().eq('id', id);
     setContactMessages(prev => prev.filter(m => m.id !== id));
+  };
+
+  const loadFeedbacks = async () => {
+    setFeedbacksLoading(true);
+    const { data } = await supabase
+      .from('feedbacks')
+      .select('*, order:order_id(reference_code, product_name, customer_name, assigned_sales:assigned_sales_id(full_name), assigned_rider:assigned_rider_id(full_name))')
+      .order('created_at', { ascending: false });
+    setFeedbacks(data || []);
+    setFeedbacksLoading(false);
   };
 
   const logAction = async (action, description, orderId = null, refCode = null) => {
@@ -1126,17 +1140,17 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '3px' }}>
-              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : view === 'troubleshooting' ? 'Basic Troubleshooting' : view === 'messages' ? 'Contact Messages' : 'Rider Map'}
+              {view === 'orders' ? 'Orders' : view === 'history' ? 'Sales History' : view === 'products' ? 'Products' : view === 'activity' ? 'Activity Log' : view === 'users' ? 'Users' : view === 'warranties' ? 'Warranties' : view === 'troubleshooting' ? 'Basic Troubleshooting' : view === 'messages' ? 'Contact Messages' : view === 'feedback' ? 'Customer Feedback' : 'Rider Map'}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--gray)' }}>
-              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : view === 'troubleshooting' ? `${tsVideos.length} video${tsVideos.length !== 1 ? 's' : ''} published` : view === 'messages' ? `${contactMessages.length} message${contactMessages.length !== 1 ? 's' : ''}` : 'Live rider locations'}
+              {view === 'orders' ? `${orders.length} total orders` : view === 'history' ? `${reports.length} report${reports.length !== 1 ? 's' : ''} generated` : view === 'products' ? 'Manage your product catalog' : view === 'activity' ? `${activityLog.length} recent actions` : view === 'users' ? `${users.length} staff member${users.length !== 1 ? 's' : ''}` : view === 'warranties' ? `${repairs.length} repair ticket${repairs.length !== 1 ? 's' : ''}` : view === 'troubleshooting' ? `${tsVideos.length} video${tsVideos.length !== 1 ? 's' : ''} published` : view === 'messages' ? `${contactMessages.length} message${contactMessages.length !== 1 ? 's' : ''}` : view === 'feedback' ? `${feedbacks.length} review${feedbacks.length !== 1 ? 's' : ''} submitted` : 'Live rider locations'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {/* View toggle */}
-            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }, { id: 'troubleshooting', label: '🔩 Troubleshooting' }, { id: 'messages', label: '✉️ Messages' }].map(({ id, label }) => (
+            {[{ id: 'orders', label: 'Orders' }, { id: 'history', label: 'Sales History' }, { id: 'products', label: 'Products' }, { id: 'users', label: '👥 Users' }, { id: 'map', label: '🗺 Rider Map' }, { id: 'activity', label: '📋 Activity Log' }, { id: 'warranties', label: '🔧 Warranties' }, { id: 'troubleshooting', label: '🔩 Troubleshooting' }, { id: 'messages', label: '✉️ Messages' }, { id: 'feedback', label: '⭐ Feedback' }].map(({ id, label }) => (
               <button key={id}
-                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); if (id === 'troubleshooting') loadTsVideos(); if (id === 'messages') loadContactMessages(); }}
+                onClick={() => { setView(id); if (id === 'history') loadReports(); if (id === 'activity') loadActivityLog(); if (id === 'users') loadUsers(); if (id === 'warranties') loadRepairs(); if (id === 'troubleshooting') loadTsVideos(); if (id === 'messages') loadContactMessages(); if (id === 'feedback') loadFeedbacks(); }}
                 style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: view === id ? '1px solid var(--blue)' : '1px solid rgba(166,113,228,0.2)', background: view === id ? 'var(--navy)' : 'white', color: view === id ? 'white' : 'var(--navy)', transition: 'all 0.15s' }}
               >{label}</button>
             ))}
@@ -1148,8 +1162,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Stats — current month only (hidden on Products/Map/Users/Warranties/Troubleshooting view) */}
-        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && view !== 'troubleshooting' && view !== 'messages' && <>
+        {/* Stats — current month only (hidden on Products/Map/Users/Warranties/Troubleshooting/Feedback view) */}
+        {view !== 'products' && view !== 'map' && view !== 'users' && view !== 'warranties' && view !== 'troubleshooting' && view !== 'messages' && view !== 'feedback' && <>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{_monthLabel} Stats</p>
             <div style={{ height: '1px', flex: 1, background: 'rgba(166,113,228,0.12)' }} />
@@ -1507,6 +1521,123 @@ export default function AdminDashboard() {
             )}
           </div>
         )}
+
+        {/* ── Feedback view ── */}
+        {view === 'feedback' && (() => {
+          const avgRating = (arr) => {
+            const valid = arr.filter(Boolean);
+            if (!valid.length) return null;
+            return (valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(1);
+          };
+          const salesAvg = avgRating(feedbacks.map(f => f.sales_rating));
+          const riderAvg = avgRating(feedbacks.filter(f => f.rider_rating).map(f => f.rider_rating));
+          const stars = (n) => '★'.repeat(Math.round(n || 0)) + '☆'.repeat(5 - Math.round(n || 0));
+
+          return (
+            <div>
+              {/* Summary cards */}
+              {feedbacks.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                  {[
+                    { label: 'Total Reviews', value: feedbacks.length, icon: '📝', sub: 'all time' },
+                    { label: 'Sales Avg Rating', value: salesAvg ? `${salesAvg} / 5` : '—', icon: '🧑‍💼', sub: salesAvg ? stars(salesAvg) : '' },
+                    { label: 'Rider Avg Rating', value: riderAvg ? `${riderAvg} / 5` : '—', icon: '🏍️', sub: riderAvg ? stars(riderAvg) : 'No rider reviews yet' },
+                  ].map(({ label, value, icon, sub }) => (
+                    <div key={label} style={{ background: 'white', borderRadius: '12px', padding: '18px 20px', border: '1px solid rgba(166,113,228,0.12)', boxShadow: '0 2px 10px rgba(44,62,80,0.04)' }}>
+                      <p style={{ fontSize: '1.4rem', marginBottom: '6px' }}>{icon}</p>
+                      <p style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--navy)', lineHeight: 1, marginBottom: '4px' }}>{value}</p>
+                      <p style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--gray)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '2px' }}>{label}</p>
+                      {sub && <p style={{ fontSize: '0.75rem', color: '#f59e0b', letterSpacing: '0.02em' }}>{sub}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Reviews list */}
+              <div style={{ background: 'white', borderRadius: '12px', border: '1px solid rgba(166,113,228,0.12)', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(166,113,228,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>All Reviews</p>
+                  <button onClick={loadFeedbacks} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'none', border: '1px solid rgba(166,113,228,0.2)', borderRadius: '7px', padding: '6px 12px', fontSize: '0.78rem', color: 'var(--navy)', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
+                    <RefreshCw size={12} /> Refresh
+                  </button>
+                </div>
+
+                {feedbacksLoading ? (
+                  <div style={{ padding: '60px', textAlign: 'center', color: 'var(--gray)' }}>
+                    <div style={{ width: '28px', height: '28px', border: '3px solid rgba(166,113,228,0.2)', borderTop: '3px solid var(--blue)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                    Loading feedback…
+                  </div>
+                ) : feedbacks.length === 0 ? (
+                  <div style={{ padding: '60px', textAlign: 'center' }}>
+                    <p style={{ fontSize: '2.5rem', marginBottom: '12px' }}>⭐</p>
+                    <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '4px' }}>No feedback yet</p>
+                    <p style={{ fontSize: '0.84rem', color: 'var(--gray)' }}>Customer reviews will appear here after delivery.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {feedbacks.map((fb, i) => (
+                      <div key={fb.id} style={{ padding: '20px 22px', borderBottom: i < feedbacks.length - 1 ? '1px solid rgba(166,113,228,0.07)' : 'none' }}>
+                        {/* Header row */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '14px', gap: '12px', flexWrap: 'wrap' }}>
+                          <div>
+                            <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.9rem', marginBottom: '2px' }}>
+                              {fb.order?.customer_name || 'Customer'} — <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--blue)' }}>{fb.reference_code}</span>
+                            </p>
+                            <p style={{ fontSize: '0.76rem', color: 'var(--gray)' }}>
+                              {fb.order?.product_name}
+                            </p>
+                          </div>
+                          <p style={{ fontSize: '0.72rem', color: 'var(--gray)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {new Date(fb.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })}
+                          </p>
+                        </div>
+
+                        {/* Ratings */}
+                        <div style={{ display: 'grid', gridTemplateColumns: fb.rider_rating ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                          {/* Sales */}
+                          <div style={{ background: 'rgba(166,113,228,0.04)', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(166,113,228,0.1)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '0.9rem' }}>🧑‍💼</span>
+                              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                                Sales — {fb.order?.assigned_sales?.full_name || '—'}
+                              </p>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: fb.sales_comment ? '8px' : 0 }}>
+                              <span style={{ color: '#f59e0b', fontSize: '1.1rem', letterSpacing: '1px' }}>{stars(fb.sales_rating)}</span>
+                              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--navy)' }}>{fb.sales_rating}/5</span>
+                            </div>
+                            {fb.sales_comment && (
+                              <p style={{ fontSize: '0.82rem', color: 'var(--navy)', lineHeight: 1.55, fontStyle: 'italic' }}>"{fb.sales_comment}"</p>
+                            )}
+                          </div>
+
+                          {/* Rider */}
+                          {fb.rider_rating && (
+                            <div style={{ background: 'rgba(166,113,228,0.04)', borderRadius: '10px', padding: '14px 16px', border: '1px solid rgba(166,113,228,0.1)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '0.9rem' }}>🏍️</span>
+                                <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                                  Rider — {fb.order?.assigned_rider?.full_name || '—'}
+                                </p>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: fb.rider_comment ? '8px' : 0 }}>
+                                <span style={{ color: '#f59e0b', fontSize: '1.1rem', letterSpacing: '1px' }}>{stars(fb.rider_rating)}</span>
+                                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--navy)' }}>{fb.rider_rating}/5</span>
+                              </div>
+                              {fb.rider_comment && (
+                                <p style={{ fontSize: '0.82rem', color: 'var(--navy)', lineHeight: 1.55, fontStyle: 'italic' }}>"{fb.rider_comment}"</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Warranties view ── */}
         {view === 'warranties' && (() => {

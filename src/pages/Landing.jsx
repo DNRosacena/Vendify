@@ -262,6 +262,29 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ── Feedback CTA ──────────────────────────────────── */}
+      <section style={{ padding: '64px 24px', background: 'var(--light)', textAlign: 'center' }}>
+        <div style={{ maxWidth: '560px', margin: '0 auto' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'linear-gradient(135deg, rgba(166,113,228,0.15), rgba(254,120,227,0.1))', border: '1px solid rgba(166,113,228,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.6rem' }}>
+            ⭐
+          </div>
+          <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 'clamp(1.4rem, 3vw, 2rem)', fontWeight: 800, color: 'var(--navy)', marginBottom: '10px' }}>
+            Already a Customer? / Kasalukuyang Customer?
+          </h2>
+          <p style={{ fontSize: '0.92rem', color: 'var(--gray)', lineHeight: 1.7, marginBottom: '24px' }}>
+            We'd love to hear about your experience. Rate your sales representative and delivery rider — your feedback helps us improve. / I-rate ang inyong karanasan sa aming serbisyo.
+          </p>
+          <button
+            onClick={() => navigate('/feedback')}
+            style={{ background: 'linear-gradient(135deg, var(--blue), var(--red))', color: 'white', fontWeight: 700, fontSize: '0.92rem', padding: '13px 30px', border: 'none', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 4px 18px rgba(166,113,228,0.25)', display: 'inline-flex', alignItems: 'center', gap: '8px', transition: 'transform 0.2s' }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            ⭐ Rate Our Service
+          </button>
+        </div>
+      </section>
+
       {/* ── CTA ───────────────────────────────────────────── */}
       <section style={{ padding: '80px 24px', background: 'linear-gradient(135deg, var(--navy-light) 0%, var(--navy) 100%)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: '600px', height: '300px', background: 'var(--blue)', borderRadius: '50%', opacity: 0.06, filter: 'blur(80px)', pointerEvents: 'none' }} />
